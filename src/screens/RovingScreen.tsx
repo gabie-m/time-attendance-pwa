@@ -8,9 +8,9 @@ import { MetricCard } from '../components/MetricCard';
 import { PlatformNotice } from '../components/PlatformNotice';
 import { Pill } from '../components/Pill';
 import { TimeGapWarning } from '../components/TimeGapWarning';
-import { locations } from '../data/mockData';
-import type { Visit } from '../domain/types';
+import type { Location, Visit } from '../domain/types';
 import { offlineDb, queueAttendanceEvent } from '../offline/offlineQueue';
+import { useMockLocations } from '../services/mockLocationService';
 import {
   checkCurrentPositionAgainstLocation,
   getGpsUnavailableResult,
@@ -22,6 +22,7 @@ const shortAttendanceGapConfirmationMinutes = 30;
 
 export function RovingScreen() {
   const { user } = useMockAuth();
+  const locations = useMockLocations();
   const [pendingCount, setPendingCount] = useState(0);
   const [showForm, setShowForm] = useState(false);
   const [selectedLocationName, setSelectedLocationName] = useState(locations[0]?.name ?? '');
@@ -71,7 +72,7 @@ export function RovingScreen() {
       return;
     }
 
-    const selectedLocation = getLocationByName(selectedLocationName);
+    const selectedLocation = getLocationByName(getSelectedLocationName(selectedLocationName, locations), locations);
     const geoCheck = await getGeoCheck(selectedLocation);
     if (geoCheck.status !== 'normal') {
       setPendingLocationWarning({ type: 'start', result: geoCheck });
@@ -123,7 +124,7 @@ export function RovingScreen() {
   async function endVisitAfterTimeConfirmation(visitId: string) {
     setPendingTimeGapWarning(null);
     const visit = visits.find((item) => item.id === visitId);
-    const visitLocation = getLocationByName(visit?.locationName ?? selectedLocationName);
+    const visitLocation = getLocationByName(visit?.locationName ?? getSelectedLocationName(selectedLocationName, locations), locations);
     const geoCheck = await getGeoCheck(visitLocation);
     if (geoCheck.status !== 'normal') {
       setPendingLocationWarning({ type: 'end', result: geoCheck, visitId });
@@ -233,7 +234,10 @@ export function RovingScreen() {
             <article className="visit-form">
               <label>
                 Location
-                <select value={selectedLocationName} onChange={(event) => setSelectedLocationName(event.target.value)}>
+                <select
+                  value={getSelectedLocationName(selectedLocationName, locations)}
+                  onChange={(event) => setSelectedLocationName(event.target.value)}
+                >
                   {locations.map((location) => (
                     <option value={location.name} key={location.id}>{location.name}</option>
                   ))}
@@ -384,11 +388,15 @@ function getMinutesSince(timeLabel: string) {
   return Math.max(0, Math.floor((new Date().getTime() - todayAt(timeLabel).getTime()) / 60000));
 }
 
-function getLocationByName(locationName: string) {
-  return locations.find((location) => location.name === locationName) ?? locations[0];
+function getLocationByName(locationName: string, locations: Location[]) {
+  return locations.find((location: { name: string }) => location.name === locationName) ?? locations[0];
 }
 
-async function getGeoCheck(location: NonNullable<typeof locations[number]>) {
+function getSelectedLocationName(selectedLocationName: string, locations: Location[]) {
+  return selectedLocationName || locations[0]?.name || '';
+}
+
+async function getGeoCheck(location: Location) {
   try {
     return await checkCurrentPositionAgainstLocation(location);
   } catch (error) {

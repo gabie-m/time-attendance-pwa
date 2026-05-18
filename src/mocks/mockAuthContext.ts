@@ -1,5 +1,5 @@
 import { createContext } from 'react';
-import type { MockUser } from './types';
+import type { MockUser } from '../auth/types';
 
 export type MockAuthContextValue = {
   user: MockUser;

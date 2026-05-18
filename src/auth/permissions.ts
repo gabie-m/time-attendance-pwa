@@ -25,8 +25,12 @@ export function canAccessRoute(user: MockUser, route: string) {
     return user.attendanceModel === 'roving' && user.role !== 'admin';
   }
 
-  if (route === '/manager' || route === '/reports') {
-    return user.role === 'manager' || user.role === 'admin';
+  if (route === '/manager' || route === '/manager/flags') {
+    return user.role === 'manager';
+  }
+
+  if (route === '/admin/reports' || route === '/admin/flags' || route.startsWith('/admin/attendance/')) {
+    return user.role === 'admin';
   }
 
   if (route === '/admin') {

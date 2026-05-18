@@ -9,7 +9,9 @@ const navItems = [
   { to: '/roving', label: 'My Attendance', icon: 'route' },
   { to: '/requests', label: 'My Requests', icon: 'flag' },
   { to: '/manager', label: 'My Team', icon: 'users' },
-  { to: '/reports', label: 'My Reports', icon: 'download' },
+  { to: '/manager/flags', label: 'Flag Review', icon: 'flag' },
+  { to: '/admin/flags', label: 'Flag Review', icon: 'flag' },
+  { to: '/admin/reports', label: 'Admin Reports', icon: 'download' },
   { to: '/admin', label: 'Admin', icon: 'settings' }
 ];
 

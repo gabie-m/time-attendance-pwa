@@ -34,6 +34,8 @@ These rules are enforced automatically and are not configurable.
 - Approved corrections cannot be reversed; admin handles disputes separately.
 - Manager approval and rejection both require remarks.
 - One pending request is allowed per user per session per request type at a time.
+- New user setup requires all identity and staff profile fields before saving.
+- Employee IDs must be unique across staff profiles; duplicate employee IDs are rejected.
 
 ## Configurable Rules
 
@@ -49,6 +51,18 @@ These rules are admin-adjustable through the `attendance_rules` table. They must
 | `overtime_threshold_hours` | `8` | integer | Working hours above this threshold become overtime candidates or overtime totals depending on approval state. |
 | `travel_time_reporting_mode` | `paid_non_productive_separate` | enum | Travel gaps are paid but non-productive and always reported separately. |
 | `max_edit_request_days_back` | `30` | integer | Maximum days back a user can submit a correction request. |
+| `flag_review_workflow_mode_by_flag_type` | per flag type | enum map | Each flag type is assigned one workflow mode: `manager_review_admin_observe`, `manager_preapprove_admin_final`, or `manager_view_admin_approve`. |
+
+## Flag Review Workflow Rules
+
+- Flag review routing is configured per flag type through `flag_review_workflow_mode_by_flag_type`.
+- A flag inherits its manager/admin approval workflow from its `flag_type`; reviewers do not choose the workflow during review.
+- Example: if `gps_low_accuracy` is configured as `manager_review_admin_observe`, all low GPS accuracy flags require manager approval while admin only reviews the manager decision.
+- `manager_review_admin_observe`: manager reviews and approves the flag; admin sees the flag and manager approval for audit review only.
+- `manager_preapprove_admin_final`: manager reviews first and pre-approves or recommends rejection; admin performs final approval or rejection.
+- `manager_view_admin_approve`: manager can see the flag for awareness but cannot approve; admin is the only approver.
+- Flag review remarks are required when a manager or admin performs an approval, rejection, resolution, or escalation action.
+- Original attendance records remain immutable regardless of flag review outcome.
 
 ## Platform And PWA Rules
 
@@ -57,6 +71,7 @@ These rules are admin-adjustable through the `attendance_rules` table. They must
 - The app must never imply that iOS can perform automatic background sync.
 - Home screen installation is recommended but not mandatory.
 - Show persistent in-app copy: "Add to Home Screen to enable push notifications."
+- Google Maps Places address search is optional admin setup tooling. Manual latitude/longitude entry must remain available as a fallback when `VITE_GOOGLE_MAPS_API_KEY` is not configured.
 
 ## Authentication And Session Rules
 

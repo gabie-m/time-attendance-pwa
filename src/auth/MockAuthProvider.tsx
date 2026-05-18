@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
-import { MockAuthContext } from './mockAuthContext';
-import { mockUsers } from './mockUsers';
+import { MockAuthContext } from '../mocks/mockAuthContext';
+import { mockUsers } from '../mocks/mockUsers';
 import type { MockUser } from './types';
 
 export function MockAuthProvider({ children }: { children: ReactNode }) {

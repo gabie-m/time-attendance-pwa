@@ -8,9 +8,9 @@ import { MetricCard } from '../components/MetricCard';
 import { PlatformNotice } from '../components/PlatformNotice';
 import { Pill } from '../components/Pill';
 import { TimeGapWarning } from '../components/TimeGapWarning';
-import { locations } from '../data/mockData';
-import type { AttendanceEvent, AttendanceEventType } from '../domain/types';
+import type { AttendanceEvent, AttendanceEventType, Location } from '../domain/types';
 import { queueAttendanceEvent, offlineDb } from '../offline/offlineQueue';
+import { useMockLocations } from '../services/mockLocationService';
 import {
   checkCurrentPositionAgainstLocation,
   getGpsUnavailableResult,
@@ -32,6 +32,7 @@ const actionLabels: Record<AttendanceEventType, string> = {
 
 export function StationaryScreen() {
   const { user } = useMockAuth();
+  const locations = useMockLocations();
   const [pendingCount, setPendingCount] = useState(0);
   const [pendingLocationWarning, setPendingLocationWarning] = useState<{
     action: AttendanceEventType;
@@ -47,7 +48,7 @@ export function StationaryScreen() {
   const events = useMemo(() => eventsByUser[user.id] ?? readStoredEvents(user.id), [eventsByUser, user.id]);
   const assignedLocation = useMemo(() => {
     return locations.find((location) => location.name === user.expectedLocation) ?? locations[0];
-  }, [user.expectedLocation]);
+  }, [locations, user.expectedLocation]);
 
   useEffect(() => {
     window.localStorage.setItem(getStorageKey(user.id), JSON.stringify(events));
@@ -274,7 +275,7 @@ export function StationaryScreen() {
   );
 }
 
-async function getGeoCheck(location: NonNullable<typeof locations[number]>) {
+async function getGeoCheck(location: Location) {
   try {
     return await checkCurrentPositionAgainstLocation(location);
   } catch (error) {

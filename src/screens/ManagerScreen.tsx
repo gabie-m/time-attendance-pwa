@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { mockUsers } from '../auth/mockUsers';
+import { mockUsers } from '../mocks/mockUsers';
 import { useMockAuth } from '../auth/useMockAuth';
-import { managerRows } from '../data/mockData';
+import { managerRows } from '../mocks/mockReportData';
 import { MetricCard } from '../components/MetricCard';
 import { Pill } from '../components/Pill';
 import {

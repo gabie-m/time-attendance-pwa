@@ -1,5 +1,5 @@
 import { useContext } from 'react';
-import { MockAuthContext } from './mockAuthContext';
+import { MockAuthContext } from '../mocks/mockAuthContext';
 
 export function useMockAuth() {
   const value = useContext(MockAuthContext);

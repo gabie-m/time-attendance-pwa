@@ -3,8 +3,11 @@ import type { ReactNode } from 'react';
 import { canAccessRoute, getDefaultRouteForUser } from '../auth/permissions';
 import { useMockAuth } from '../auth/useMockAuth';
 import { AppShell } from '../components/AppShell';
+import { AttendanceDetailScreen } from '../screens/AttendanceDetailScreen';
+import { AdminFlagReviewScreen } from '../screens/AdminFlagReviewScreen';
 import { AdminScreen } from '../screens/AdminScreen';
 import { LoginScreen } from '../screens/LoginScreen';
+import { ManagerFlagReviewScreen } from '../screens/ManagerFlagReviewScreen';
 import { ManagerScreen } from '../screens/ManagerScreen';
 import { MyRequestsScreen } from '../screens/MyRequestsScreen';
 import { ReportsScreen } from '../screens/ReportsScreen';
@@ -23,7 +26,10 @@ export function App() {
         <Route path="/roving" element={<ProtectedRoute path="/roving"><RovingScreen /></ProtectedRoute>} />
         <Route path="/requests" element={<ProtectedRoute path="/requests"><MyRequestsScreen /></ProtectedRoute>} />
         <Route path="/manager" element={<ProtectedRoute path="/manager"><ManagerScreen /></ProtectedRoute>} />
-        <Route path="/reports" element={<ProtectedRoute path="/reports"><ReportsScreen /></ProtectedRoute>} />
+        <Route path="/manager/flags" element={<ProtectedRoute path="/manager/flags"><ManagerFlagReviewScreen /></ProtectedRoute>} />
+        <Route path="/admin/flags" element={<ProtectedRoute path="/admin/flags"><AdminFlagReviewScreen /></ProtectedRoute>} />
+        <Route path="/admin/reports" element={<ProtectedRoute path="/admin/reports"><ReportsScreen /></ProtectedRoute>} />
+        <Route path="/admin/attendance/:employeeId" element={<ProtectedRoute path="/admin/attendance/detail"><AttendanceDetailScreen /></ProtectedRoute>} />
         <Route path="/admin" element={<ProtectedRoute path="/admin"><AdminScreen /></ProtectedRoute>} />
       </Route>
     </Routes>
