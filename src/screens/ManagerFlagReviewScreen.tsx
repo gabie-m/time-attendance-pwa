@@ -197,15 +197,18 @@ function ManagerFlagReviewDetail({
   const canAct = !isVisibilityOnly && record.managerDecisionStatus === 'pending';
   const [remarks, setRemarks] = useState('');
   const [message, setMessage] = useState<string | null>(null);
+  const [messageType, setMessageType] = useState<'success' | 'error'>('success');
 
   function handleAction(action: ManagerFlagReviewAction) {
     const result = onAction(record, workflowMode, action, remarks);
     if (!result.ok) {
+      setMessageType('error');
       setMessage(result.error);
       return;
     }
 
     setRemarks('');
+    setMessageType('success');
     setMessage('Manager review action saved to mock history.');
   }
 
@@ -320,7 +323,11 @@ function ManagerFlagReviewDetail({
               </button>
             ))}
           </div>
-          {message ? <p className={message.includes('saved') ? 'form-message success' : 'form-warning'}>{message}</p> : null}
+          {message ? (
+            <p className={messageType === 'success' ? 'form-message success' : 'form-warning'}>
+              {message}
+            </p>
+          ) : null}
         </section>
       ) : null}
 
