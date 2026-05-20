@@ -1,9 +1,10 @@
 import { useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { useMockAuth } from '../auth/useMockAuth';
 import { Pill } from '../components/Pill';
+import { useFlagReviewRecords } from '../hooks/useFlagReviewRecords';
 import { useFlagReviewWorkflowSettings } from '../hooks/useFlagReviewWorkflowSettings';
 import {
-  flagReviewRecords,
   flagReviewWorkflowOptions,
   type FlagReviewRecord,
   type FlagReviewerDecisionStatus,
@@ -11,6 +12,7 @@ import {
   type FlagReviewWorkflowSetting
 } from '../mocks/mockFlagReviewData';
 import type { EventFlagType, FlagSeverity, FlagStatus } from '../mocks/mockAttendanceDetailData';
+import { reviewFlagAsManager, type ManagerFlagReviewAction } from '../services/mockFlagReviewService';
 import { formatDecisionStatus, formatFlagType, getWorkflowCopy, getWorkflowOption } from '../utils/flagReviewWorkflow';
 
 type FlagFilter = 'pending' | 'all' | FlagStatus;
@@ -24,8 +26,10 @@ const flagFilters: Array<{ value: FlagFilter; label: string }> = [
 
 export function ManagerFlagReviewScreen() {
   const [searchParams, setSearchParams] = useSearchParams();
+  const { user } = useMockAuth();
   const initialFlagId = searchParams.get('flag');
   const [filter, setFilter] = useState<FlagFilter>('pending');
+  const flagReviewRecords = useFlagReviewRecords();
   const workflowSettings = useFlagReviewWorkflowSettings();
   const managerVisibleRecords = flagReviewRecords;
   const visibleRecords = useMemo(() => {
@@ -74,6 +78,16 @@ export function ManagerFlagReviewScreen() {
     if (nextSelectedRecord) {
       setSearchParams({ flag: nextSelectedRecord.id });
     }
+  }
+
+  function handleManagerAction(record: FlagReviewRecord, workflowMode: FlagReviewWorkflowMode, action: ManagerFlagReviewAction, remarks: string) {
+    return reviewFlagAsManager({
+      recordId: record.id,
+      workflowMode,
+      action,
+      actorName: user.name,
+      remarks
+    });
   }
 
   return (
@@ -147,7 +161,11 @@ export function ManagerFlagReviewScreen() {
         </article>
 
         {selectedRecord ? (
-          <ManagerFlagReviewDetail record={selectedRecord} workflowMode={selectedWorkflowMode} />
+          <ManagerFlagReviewDetail
+            onAction={handleManagerAction}
+            record={selectedRecord}
+            workflowMode={selectedWorkflowMode}
+          />
         ) : (
           <article className="panel empty-state">
             <strong>No flag review items</strong>
@@ -160,14 +178,35 @@ export function ManagerFlagReviewScreen() {
 }
 
 function ManagerFlagReviewDetail({
+  onAction,
   record,
   workflowMode
 }: {
+  onAction: (
+    record: FlagReviewRecord,
+    workflowMode: FlagReviewWorkflowMode,
+    action: ManagerFlagReviewAction,
+    remarks: string
+  ) => { ok: true } | { ok: false; error: string };
   record: FlagReviewRecord;
   workflowMode: FlagReviewWorkflowMode;
 }) {
   const workflow = getWorkflowCopy(workflowMode);
   const isVisibilityOnly = workflowMode === 'manager_view_admin_approve';
+  const canAct = !isVisibilityOnly && record.managerDecisionStatus === 'pending';
+  const [remarks, setRemarks] = useState('');
+  const [message, setMessage] = useState<string | null>(null);
+
+  function handleAction(action: ManagerFlagReviewAction) {
+    const result = onAction(record, workflowMode, action, remarks);
+    if (!result.ok) {
+      setMessage(result.error);
+      return;
+    }
+
+    setRemarks('');
+    setMessage('Manager review action saved to mock history.');
+  }
 
   return (
     <article className="panel flag-review-detail">
@@ -248,19 +287,6 @@ function ManagerFlagReviewDetail({
               {formatDecisionStatus(record.managerDecisionStatus)}
             </Pill>
           </div>
-          <div className="inline-actions">
-            {workflow.managerActions.map((action) => {
-              const title = isVisibilityOnly
-                ? 'No manager action required for this configured workflow'
-                : 'Manager flag actions will be wired in a future update';
-
-              return (
-                <button disabled key={action} title={title}>
-                  {action}
-                </button>
-              );
-            })}
-          </div>
         </div>
       </section>
 
@@ -271,10 +297,95 @@ function ManagerFlagReviewDetail({
         </div>
         <label className="remarks-field">
           Remarks
-          <textarea disabled placeholder="Manager review remarks will be saved once backend audit actions are available." rows={4} />
+          <textarea
+            disabled={!canAct}
+            onChange={(event) => setRemarks(event.target.value)}
+            placeholder={canAct ? 'Enter manager review remarks before taking action.' : 'Manager review action is no longer available.'}
+            rows={4}
+            value={remarks}
+          />
         </label>
+        <div className="inline-actions">
+          {getManagerActions(workflowMode).map((action) => (
+            <button
+              disabled={!canAct}
+              key={action.id}
+              onClick={() => handleAction(action.id)}
+              title={getManagerActionTitle(canAct, isVisibilityOnly)}
+              type="button"
+            >
+              {action.label}
+            </button>
+          ))}
+        </div>
+        {message ? <p className={message.includes('saved') ? 'form-message success' : 'form-warning'}>{message}</p> : null}
+      </section>
+
+      <section className="detail-section">
+        <div className="panel-title">
+          <h3>Action History</h3>
+          <Pill tone="neutral">{record.actionHistory?.length ?? 0}</Pill>
+        </div>
+        <FlagActionHistory record={record} />
       </section>
     </article>
+  );
+}
+
+function getManagerActions(workflowMode: FlagReviewWorkflowMode): Array<{ id: ManagerFlagReviewAction; label: string }> {
+  if (workflowMode === 'manager_preapprove_admin_final') {
+    return [
+      { id: 'pre_approve', label: 'Recommend Approval' },
+      { id: 'reject', label: 'Recommend Reject' }
+    ];
+  }
+
+  if (workflowMode === 'manager_view_admin_approve') {
+    return [{ id: 'approve', label: 'Viewed Only' }];
+  }
+
+  return [
+    { id: 'approve', label: 'Approve Flag' },
+    { id: 'reject', label: 'Reject Flag' }
+  ];
+}
+
+function getManagerActionTitle(canAct: boolean, isVisibilityOnly: boolean) {
+  if (isVisibilityOnly) {
+    return 'No manager action required for this configured workflow';
+  }
+
+  if (!canAct) {
+    return 'Manager review has already been submitted';
+  }
+
+  return 'Save manager review action';
+}
+
+function FlagActionHistory({ record }: { record: FlagReviewRecord }) {
+  const history = record.actionHistory ?? [];
+
+  if (history.length === 0) {
+    return (
+      <div className="empty-state compact">
+        <strong>No actions yet</strong>
+        <p>Mock review actions will appear here after manager or admin review.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="action-history-list">
+      {history.map((item) => (
+        <div className="action-history-item" key={item.id}>
+          <div>
+            <strong>{item.actionLabel}</strong>
+            <p>{item.remarks}</p>
+          </div>
+          <span>{item.actorName} · {item.createdAt}</span>
+        </div>
+      ))}
+    </div>
   );
 }
 

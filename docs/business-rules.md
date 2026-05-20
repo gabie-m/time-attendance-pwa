@@ -89,7 +89,16 @@ These rules are admin-adjustable through the `attendance_rules` table. They must
 - Create `clock_discrepancy` high-severity flag when the delta between local capture time and server receive time is greater than 30 minutes.
 - Clock discrepancy flags do not block the record.
 - Clock discrepancy flag detail must include the exact delta in minutes.
-- Suspicious offline records can be cleared or escalated only by admins.
+- Suspicious offline records can be cleared only by admins.
+
+## Flag Review Decision Rules
+
+- `Approve` means the reviewer accepts the flagged attendance exception for reporting or payroll-rule handling, while retaining the original immutable attendance record and flag history.
+- `Reject` means the reviewer does not accept the flagged attendance exception or recommendation, and the flag remains part of the audit trail with rejection remarks.
+- `Mark Resolved` means the reviewer closes the flag because the issue was addressed elsewhere, confirmed as informational, or no further approval decision is needed.
+- `Mark Resolved` is not the same as `Approve`; it should not imply payroll inclusion unless the related attendance/session status is otherwise eligible.
+- All flag review decisions require remarks.
+- Original attendance records remain immutable regardless of flag review decision.
 
 ## Schema Requirements For Phase 2
 

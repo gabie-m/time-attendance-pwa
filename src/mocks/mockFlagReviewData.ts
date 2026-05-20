@@ -25,6 +25,18 @@ export type FlagReviewerDecision = {
   remarks?: string;
 };
 
+export type FlagReviewActorRole = 'manager' | 'admin';
+
+export type FlagReviewActionHistoryItem = {
+  id: string;
+  actorRole: FlagReviewActorRole;
+  actorName: string;
+  actionLabel: string;
+  decisionStatus: FlagReviewerDecisionStatus;
+  remarks: string;
+  createdAt: string;
+};
+
 export type FlagReviewRecord = {
   id: string;
   employeeId: string;
@@ -53,6 +65,7 @@ export type FlagReviewRecord = {
   managerDecision?: FlagReviewerDecision;
   adminDecisionStatus: FlagReviewerDecisionStatus;
   adminDecision?: FlagReviewerDecision;
+  actionHistory?: FlagReviewActionHistoryItem[];
 };
 
 export const defaultFlagReviewWorkflowMode: FlagReviewWorkflowMode = 'manager_preapprove_admin_final';

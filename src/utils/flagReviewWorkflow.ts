@@ -22,8 +22,8 @@ export function getWorkflowCopy(workflowMode: FlagReviewWorkflowMode) {
       managerDescription: 'Manager can see the flag for awareness, but cannot approve or reject it.',
       managerActions: ['Viewed Only'],
       adminTitle: 'Final approver',
-      adminDescription: 'Admin is the only reviewer who can approve, reject, resolve, or escalate the flag.',
-      adminActions: ['Approve Flag', 'Reject Flag', 'Resolve Flag']
+      adminDescription: 'Admin is the only reviewer who can approve, reject, or resolve the flag.',
+      adminActions: ['Approve Flag', 'Reject Flag', 'Mark Resolved']
     };
   }
 
@@ -33,7 +33,7 @@ export function getWorkflowCopy(workflowMode: FlagReviewWorkflowMode) {
     managerActions: ['Pre-approve Flag', 'Recommend Reject'],
     adminTitle: 'Final approver',
     adminDescription: 'Admin reviews the manager pre-approval and performs the final approval decision.',
-    adminActions: ['Final Approve', 'Final Reject', 'Resolve Flag']
+    adminActions: ['Final Approve', 'Final Reject', 'Mark Resolved']
   };
 }
 

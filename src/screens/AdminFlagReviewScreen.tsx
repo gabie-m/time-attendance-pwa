@@ -1,9 +1,10 @@
 import { useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
+import { useMockAuth } from '../auth/useMockAuth';
 import { Pill } from '../components/Pill';
+import { useFlagReviewRecords } from '../hooks/useFlagReviewRecords';
 import { useFlagReviewWorkflowSettings } from '../hooks/useFlagReviewWorkflowSettings';
 import {
-  flagReviewRecords,
   flagReviewWorkflowOptions,
   type FlagReviewRecord,
   type FlagReviewerDecisionStatus,
@@ -11,6 +12,7 @@ import {
   type FlagReviewWorkflowSetting
 } from '../mocks/mockFlagReviewData';
 import type { EventFlagType, FlagSeverity, FlagStatus } from '../mocks/mockAttendanceDetailData';
+import { reviewFlagAsAdmin, type AdminFlagReviewAction } from '../services/mockFlagReviewService';
 import { formatDecisionStatus, formatFlagType, getWorkflowCopy, getWorkflowOption } from '../utils/flagReviewWorkflow';
 
 type FlagFilter = 'open' | 'all' | FlagStatus;
@@ -24,8 +26,10 @@ const flagFilters: Array<{ value: FlagFilter; label: string }> = [
 
 export function AdminFlagReviewScreen() {
   const [searchParams, setSearchParams] = useSearchParams();
+  const { user } = useMockAuth();
   const initialFlagId = searchParams.get('flag');
   const [filter, setFilter] = useState<FlagFilter>('open');
+  const flagReviewRecords = useFlagReviewRecords();
   const workflowSettings = useFlagReviewWorkflowSettings();
   const visibleRecords = useMemo(() => {
     if (filter === 'all') {
@@ -33,7 +37,7 @@ export function AdminFlagReviewScreen() {
     }
 
     return flagReviewRecords.filter((record) => record.status === filter);
-  }, [filter]);
+  }, [filter, flagReviewRecords]);
   const defaultRecord = flagReviewRecords.find((record) => record.id === initialFlagId) ?? visibleRecords[0] ?? flagReviewRecords[0];
   const [selectedFlagId, setSelectedFlagId] = useState(defaultRecord.id);
   const selectedRecord =
@@ -56,13 +60,23 @@ export function AdminFlagReviewScreen() {
     setSearchParams({ flag: nextSelectedRecord.id });
   }
 
+  function handleAdminAction(record: FlagReviewRecord, workflowMode: FlagReviewWorkflowMode, action: AdminFlagReviewAction, remarks: string) {
+    return reviewFlagAsAdmin({
+      recordId: record.id,
+      workflowMode,
+      action,
+      actorName: user.name,
+      remarks
+    });
+  }
+
   return (
     <section className="screen">
       <header className="screen-header">
         <div>
           <span className="eyebrow">Admin Review</span>
           <h1>Flag Review</h1>
-          <p>Review attendance flags before they are cleared, escalated, or included in operational reporting.</p>
+          <p>Review attendance flags before they are cleared or included in operational reporting.</p>
         </div>
         <Pill tone="info">Mock review UI</Pill>
       </header>
@@ -124,16 +138,47 @@ export function AdminFlagReviewScreen() {
           </div>
         </article>
 
-        <FlagReviewDetail record={selectedRecord} workflowMode={selectedWorkflowMode} />
+        <FlagReviewDetail
+          onAction={handleAdminAction}
+          record={selectedRecord}
+          workflowMode={selectedWorkflowMode}
+        />
       </section>
     </section>
   );
 }
 
-function FlagReviewDetail({ record, workflowMode }: { record: FlagReviewRecord; workflowMode: FlagReviewWorkflowMode }) {
+function FlagReviewDetail({
+  onAction,
+  record,
+  workflowMode
+}: {
+  onAction: (
+    record: FlagReviewRecord,
+    workflowMode: FlagReviewWorkflowMode,
+    action: AdminFlagReviewAction,
+    remarks: string
+  ) => { ok: true } | { ok: false; error: string };
+  record: FlagReviewRecord;
+  workflowMode: FlagReviewWorkflowMode;
+}) {
   const workflow = getWorkflowCopy(workflowMode);
   const requiresManagerPreApproval = workflowMode === 'manager_preapprove_admin_final';
   const isWaitingForManagerPreApproval = requiresManagerPreApproval && record.managerDecisionStatus === 'pending';
+  const canMakeDecision = !isWaitingForManagerPreApproval && record.adminDecisionStatus === 'pending';
+  const [remarks, setRemarks] = useState('');
+  const [message, setMessage] = useState<string | null>(null);
+
+  function handleAction(action: AdminFlagReviewAction) {
+    const result = onAction(record, workflowMode, action, remarks);
+    if (!result.ok) {
+      setMessage(result.error);
+      return;
+    }
+
+    setRemarks('');
+    setMessage('Admin review action saved to mock history.');
+  }
 
   return (
     <article className="panel flag-review-detail">
@@ -255,28 +300,6 @@ function FlagReviewDetail({ record, workflowMode }: { record: FlagReviewRecord; 
               {formatDecisionStatus(record.adminDecisionStatus)}
             </Pill>
           </div>
-          <div className="inline-actions">
-            {workflow.adminActions.map((action) => (
-              <button
-                disabled
-                key={action}
-                title={
-                  isWaitingForManagerPreApproval
-                    ? 'Waiting for manager pre-approval'
-                    : 'Admin flag actions will be wired in a future update'
-                }
-              >
-                {action}
-              </button>
-            ))}
-            <button
-              className="secondary"
-              disabled
-              title={isWaitingForManagerPreApproval ? 'Waiting for manager pre-approval' : 'Flag review actions coming soon'}
-            >
-              Escalate
-            </button>
-          </div>
         </div>
       </section>
 
@@ -287,13 +310,104 @@ function FlagReviewDetail({ record, workflowMode }: { record: FlagReviewRecord; 
         </div>
         <label className="remarks-field">
           Remarks
-          <textarea disabled placeholder="Flag review remarks will be saved once backend audit actions are available." rows={4} />
+          <textarea
+            disabled={!canMakeDecision}
+            onChange={(event) => setRemarks(event.target.value)}
+            placeholder={
+              canMakeDecision
+                ? 'Enter admin review remarks before taking action.'
+                : 'Admin review action is not currently available.'
+            }
+            rows={4}
+            value={remarks}
+          />
         </label>
+        <div className="inline-actions">
+          {getAdminActions(workflowMode).map((action) => (
+            <button
+              disabled={!canMakeDecision}
+              key={action.id}
+              onClick={() => handleAction(action.id)}
+              title={getAdminActionTitle(canMakeDecision, isWaitingForManagerPreApproval)}
+              type="button"
+            >
+              {action.label}
+            </button>
+          ))}
+        </div>
+        {message ? <p className={message.includes('saved') ? 'form-message success' : 'form-warning'}>{message}</p> : null}
         <Link className="text-button" to={`/admin/attendance/${record.employeeId}`}>
           View employee attendance detail
         </Link>
       </section>
+
+      <section className="detail-section">
+        <div className="panel-title">
+          <h3>Action History</h3>
+          <Pill tone="neutral">{record.actionHistory?.length ?? 0}</Pill>
+        </div>
+        <FlagActionHistory record={record} />
+      </section>
     </article>
+  );
+}
+
+function getAdminActions(workflowMode: FlagReviewWorkflowMode): Array<{ id: AdminFlagReviewAction; label: string }> {
+  if (workflowMode === 'manager_review_admin_observe') {
+    return [{ id: 'mark_reviewed', label: 'Mark Admin Reviewed' }];
+  }
+
+  if (workflowMode === 'manager_preapprove_admin_final') {
+    return [
+      { id: 'approve', label: 'Final Approve' },
+      { id: 'reject', label: 'Final Reject' },
+      { id: 'resolve', label: 'Mark Resolved' }
+    ];
+  }
+
+  return [
+    { id: 'approve', label: 'Approve Flag' },
+    { id: 'reject', label: 'Reject Flag' },
+    { id: 'resolve', label: 'Mark Resolved' }
+  ];
+}
+
+function getAdminActionTitle(canMakeDecision: boolean, isWaitingForManagerPreApproval: boolean) {
+  if (isWaitingForManagerPreApproval) {
+    return 'Waiting for manager pre-approval';
+  }
+
+  if (!canMakeDecision) {
+    return 'Admin decision has already been submitted';
+  }
+
+  return 'Save admin review action';
+}
+
+function FlagActionHistory({ record }: { record: FlagReviewRecord }) {
+  const history = record.actionHistory ?? [];
+
+  if (history.length === 0) {
+    return (
+      <div className="empty-state compact">
+        <strong>No actions yet</strong>
+        <p>Mock review actions will appear here after manager or admin review.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="action-history-list">
+      {history.map((item) => (
+        <div className="action-history-item" key={item.id}>
+          <div>
+            <strong>{item.actionLabel}</strong>
+            <p>{item.remarks}</p>
+          </div>
+          <span>{item.actorName} · {item.createdAt}</span>
+        </div>
+      ))}
+    </div>
   );
 }
 
