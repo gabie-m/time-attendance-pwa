@@ -892,6 +892,12 @@ button {
   font-size: 13px;
 }
 
+.form-message.success {
+  color: #166534;
+  background: #e9f9ee;
+  border-color: #a7e5b8;
+}
+
 .request-card {
   border: 1px solid var(--border-soft);
   border-radius: 8px;
@@ -1333,6 +1339,31 @@ button {
 
 .flag-review-note {
   margin: 0;
+}
+
+.action-history-list {
+  display: grid;
+  gap: 8px;
+}
+
+.action-history-item {
+  align-items: flex-start;
+  background: #f8fafc;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+}
+
+.action-history-item p {
+  margin: 3px 0 0;
+}
+
+.action-history-item span {
+  color: var(--ink-2);
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .review-workflow-grid {

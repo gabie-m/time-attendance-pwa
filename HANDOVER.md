@@ -264,6 +264,7 @@ Completed in this phase:
 - Mock data cleanup under `src/mocks/`.
 - Admin Flag Review page at `/admin/flags`.
 - Manager Flag Review page at `/manager/flags`.
+- Mock Manager/Admin flag review actions that mutate localStorage-backed state and append action history.
 - Admin setting page section for per-flag-type workflow configuration.
 - Mock flag workflow settings service using localStorage.
 - Admin/Manager role-specific workflow display.
@@ -279,8 +280,6 @@ Current phase scope and Codex instructions:
 - Review pages should show only role-relevant actions and workflow responsibilities.
 
 Remaining in current phase:
-- Make flag review buttons actually perform mock state changes and write action history.
-- Add manager comments/pre-approval entry UI and admin final approval mock action UI.
 - Add GPS coordinate hover/tap popover with Google Maps fallback link.
 - Possibly add shared reusable flag review detail components to reduce duplication between Admin and Manager screens.
 - Decide whether to add a dedicated Admin Settings route instead of keeping settings inside `/admin`.
@@ -346,6 +345,7 @@ Remaining in current phase:
 
 - `src/domain/types.ts`: shared core domain types.
 - `src/hooks/useStaffSetupRecords.ts`: React hook for staff setup service subscription.
+- `src/hooks/useFlagReviewRecords.ts`: React hook for localStorage-backed flag review records/actions.
 - `src/hooks/useFlagReviewWorkflowSettings.ts`: React hook for flag workflow settings subscription.
 - `src/offline/offlineQueue.ts`: Dexie IndexedDB pending attendance event queue scaffold.
 - `src/utils/geo.ts`: distance/GPS helper logic.
@@ -380,6 +380,7 @@ Remaining in current phase:
 - `src/services/mockStaffService.ts`: mock user/staff/profile/assignment service.
 - `src/services/mockLocationService.ts`: mock location service.
 - `src/services/mockManualEditService.ts`: mock manual edit request/adjustment service.
+- `src/services/mockFlagReviewService.ts`: mock Manager/Admin flag review action service with action history.
 - `src/services/mockFlagReviewSettingsService.ts`: mock flag workflow settings service.
 - `src/services/googlePlacesService.ts`: optional Google Places loader/mapper.
 
@@ -390,4 +391,4 @@ Remaining in current phase:
 
 ## 8. Resume Instructions
 
-Resume from Phase 1D. The immediate next task should be either: make Manager/Admin flag review actions mutate mock state and record action history, or add the GPS coordinate hover/tap popover with Google Maps fallback link. Keep all work frontend/mock-only unless explicitly told to start backend Phase 2. Do not move workflow configuration back into review pages; it belongs in Admin settings. Preserve role separation: Manager screens show manager responsibility only, Admin screens show admin responsibility only. Continue running `npm run lint` and `npm run build` after changes.
+Resume from Phase 1D. The immediate next task should be either add the GPS coordinate hover/tap popover with Google Maps fallback link, reduce duplication between Admin/Manager flag review detail UI, or decide whether Admin settings should move to a dedicated route. Keep all work frontend/mock-only unless explicitly told to start backend Phase 2. Do not move workflow configuration back into review pages; it belongs in Admin settings. Preserve role separation: Manager screens show manager responsibility only, Admin screens show admin responsibility only. Continue running `npm run lint` and `npm run build` after changes.

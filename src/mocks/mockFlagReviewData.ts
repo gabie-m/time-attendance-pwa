@@ -25,6 +25,18 @@ export type FlagReviewerDecision = {
   remarks?: string;
 };
 
+export type FlagReviewActorRole = 'manager' | 'admin';
+
+export type FlagReviewActionHistoryItem = {
+  id: string;
+  actorRole: FlagReviewActorRole;
+  actorName: string;
+  actionLabel: string;
+  decisionStatus: FlagReviewerDecisionStatus;
+  remarks: string;
+  createdAt: string;
+};
+
 export type FlagReviewRecord = {
   id: string;
   employeeId: string;
@@ -32,6 +44,7 @@ export type FlagReviewRecord = {
   employeeCode: string;
   role: 'user' | 'manager';
   staffType: 'stationary' | 'roving';
+  managerId: string;
   managerName: string;
   workDate: string;
   submittedAt: string;
@@ -53,6 +66,7 @@ export type FlagReviewRecord = {
   managerDecision?: FlagReviewerDecision;
   adminDecisionStatus: FlagReviewerDecisionStatus;
   adminDecision?: FlagReviewerDecision;
+  actionHistory?: FlagReviewActionHistoryItem[];
 };
 
 export const defaultFlagReviewWorkflowMode: FlagReviewWorkflowMode = 'manager_preapprove_admin_final';
@@ -106,6 +120,7 @@ export const flagReviewRecords: FlagReviewRecord[] = [
     employeeCode: 'MGR-001',
     role: 'manager',
     staffType: 'roving',
+    managerId: 'admin',
     managerName: 'Admin User',
     workDate: '2026-05-12',
     submittedAt: '2026-05-12T10:14:00.000+08:00',
@@ -136,6 +151,7 @@ export const flagReviewRecords: FlagReviewRecord[] = [
     employeeCode: 'EMP-002',
     role: 'user',
     staffType: 'roving',
+    managerId: 'manager',
     managerName: 'Lea Cruz',
     workDate: '2026-05-12',
     submittedAt: '2026-05-12T11:09:00.000+08:00',
@@ -152,12 +168,9 @@ export const flagReviewRecords: FlagReviewRecord[] = [
     offline: true,
     summary: 'Attendance was captured offline and synced after the visit ended.',
     evidence: ['Captured offline: yes', 'Sync delay: 7 minutes', 'Device record retained for audit'],
-    managerDecisionStatus: 'pre_approved',
+    managerDecisionStatus: 'not_required',
     managerDecision: {
-      status: 'pre_approved',
-      reviewerName: 'Lea Cruz',
-      reviewedAt: '2026-05-12T11:18:00.000+08:00',
-      remarks: 'Verified store visit with Robinsons Galleria supervisor. Offline capture was due to mall network outage.'
+      status: 'not_required'
     },
     adminDecisionStatus: 'pending'
   },
@@ -168,6 +181,7 @@ export const flagReviewRecords: FlagReviewRecord[] = [
     employeeCode: 'EMP-014',
     role: 'user',
     staffType: 'stationary',
+    managerId: 'manager',
     managerName: 'Lea Cruz',
     workDate: '2026-05-12',
     submittedAt: '2026-05-12T09:04:00.000+08:00',
@@ -197,6 +211,7 @@ export const flagReviewRecords: FlagReviewRecord[] = [
     employeeCode: 'EMP-018',
     role: 'user',
     staffType: 'stationary',
+    managerId: 'manager',
     managerName: 'Lea Cruz',
     workDate: '2026-05-11',
     submittedAt: '2026-05-11T08:05:00.000+08:00',
@@ -236,6 +251,7 @@ export const flagReviewRecords: FlagReviewRecord[] = [
     employeeCode: 'EMP-099',
     role: 'user',
     staffType: 'stationary',
+    managerId: 'manager',
     managerName: 'Lea Cruz',
     workDate: '2026-04-13',
     submittedAt: '2026-04-13T18:35:00.000+08:00',
