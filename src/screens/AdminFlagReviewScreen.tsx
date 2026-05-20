@@ -131,7 +131,7 @@ export function AdminFlagReviewScreen() {
               >
                 <span>
                   <strong>{record.employeeName}</strong>
-                  <small>{formatFlagType(record.flagType)} · {record.workDate}</small>
+                  <small>{formatFlagType(record.flagType)} · {formatWorkDate(record.workDate)}</small>
                 </span>
                 <span className="flag-review-list-status">
                   <Pill tone={getSeverityTone(record.severity)}>{record.severity}</Pill>
@@ -218,11 +218,11 @@ function FlagReviewDetail({
         </div>
         <div>
           <span className="eyebrow">Work date</span>
-          <strong>{record.workDate}</strong>
+          <strong>{formatWorkDate(record.workDate)}</strong>
         </div>
         <div>
           <span className="eyebrow">Submitted</span>
-          <strong>{record.submittedAt}</strong>
+          <strong>{formatTimestamp(record.submittedAt)}</strong>
         </div>
       </div>
 
@@ -463,4 +463,24 @@ function getFlagStatusTone(status: FlagStatus) {
   }
 
   return 'warn';
+}
+
+function formatWorkDate(workDate: string) {
+  return new Intl.DateTimeFormat('en-PH', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    timeZone: 'Asia/Manila'
+  }).format(new Date(`${workDate}T00:00:00+08:00`));
+}
+
+function formatTimestamp(timestamp: string) {
+  return new Intl.DateTimeFormat('en-PH', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZone: 'Asia/Manila'
+  }).format(new Date(timestamp));
 }
