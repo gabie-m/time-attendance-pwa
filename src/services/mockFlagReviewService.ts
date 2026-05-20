@@ -22,7 +22,7 @@ const flagReviewRecordsStorageKey = 'flag-review-records';
 const listeners = new Set<() => void>();
 
 export function listFlagReviewRecords() {
-  return readJson<FlagReviewRecord[]>(flagReviewRecordsStorageKey, seedFlagReviewRecords);
+  return readJson<FlagReviewRecord[]>(flagReviewRecordsStorageKey, seedFlagReviewRecords).map(normalizeFlagReviewRecord);
 }
 
 export function subscribeFlagReviewRecords(listener: () => void) {
@@ -229,4 +229,16 @@ function readJson<T>(key: string, fallback: T) {
   } catch {
     return fallback;
   }
+}
+
+function normalizeFlagReviewRecord(record: FlagReviewRecord): FlagReviewRecord {
+  if (record.managerId) {
+    return record;
+  }
+
+  const seedRecord = seedFlagReviewRecords.find((item) => item.id === record.id);
+  return {
+    ...record,
+    managerId: seedRecord?.managerId ?? 'manager'
+  };
 }

@@ -31,7 +31,9 @@ export function ManagerFlagReviewScreen() {
   const [filter, setFilter] = useState<FlagFilter>('pending');
   const flagReviewRecords = useFlagReviewRecords();
   const workflowSettings = useFlagReviewWorkflowSettings();
-  const managerVisibleRecords = flagReviewRecords;
+  const managerVisibleRecords = useMemo(() => {
+    return flagReviewRecords.filter((record) => record.managerId === user.id);
+  }, [flagReviewRecords, user.id]);
   const visibleRecords = useMemo(() => {
     if (filter === 'all') {
       return managerVisibleRecords;
@@ -52,13 +54,12 @@ export function ManagerFlagReviewScreen() {
     : flagReviewWorkflowOptions[0].id;
   const pendingCount = managerVisibleRecords.filter((record) => record.managerDecisionStatus === 'pending').length;
   const highSeverityCount = managerVisibleRecords.filter((record) => {
-    const workflowMode = getWorkflowModeForFlagType(record.flagType, workflowSettings);
-    return (
-      record.severity === 'high' &&
-      workflowMode !== 'manager_view_admin_approve' &&
-      record.managerDecisionStatus === 'pending'
-    );
+    return record.severity === 'high' && record.status === 'open';
   }).length;
+
+  if (user.role !== 'manager') {
+    return null;
+  }
 
   function handleSelectRecord(record: FlagReviewRecord) {
     setSelectedFlagId(record.id);
@@ -147,7 +148,7 @@ export function ManagerFlagReviewScreen() {
               >
                 <span>
                   <strong>{record.employeeName}</strong>
-                  <small>{formatFlagType(record.flagType)} · {record.workDate}</small>
+                  <small>{formatFlagType(record.flagType)} · {formatWorkDate(record.workDate)}</small>
                 </span>
                 <span className="flag-review-list-status">
                   <Pill tone={getSeverityTone(record.severity)}>{record.severity}</Pill>
@@ -232,11 +233,11 @@ function ManagerFlagReviewDetail({
         </div>
         <div>
           <span className="eyebrow">Work date</span>
-          <strong>{record.workDate}</strong>
+          <strong>{formatWorkDate(record.workDate)}</strong>
         </div>
         <div>
           <span className="eyebrow">Submitted</span>
-          <strong>{record.submittedAt}</strong>
+          <strong>{formatTimestamp(record.submittedAt)}</strong>
         </div>
       </div>
 
@@ -290,36 +291,38 @@ function ManagerFlagReviewDetail({
         </div>
       </section>
 
-      <section className="detail-section">
-        <div className="panel-title">
-          <h3>Remarks</h3>
-          <Pill tone="neutral">Required on action</Pill>
-        </div>
-        <label className="remarks-field">
-          Remarks
-          <textarea
-            disabled={!canAct}
-            onChange={(event) => setRemarks(event.target.value)}
-            placeholder={canAct ? 'Enter manager review remarks before taking action.' : 'Manager review action is no longer available.'}
-            rows={4}
-            value={remarks}
-          />
-        </label>
-        <div className="inline-actions">
-          {getManagerActions(workflowMode).map((action) => (
-            <button
+      {!isVisibilityOnly ? (
+        <section className="detail-section">
+          <div className="panel-title">
+            <h3>Remarks</h3>
+            <Pill tone="neutral">Required on action</Pill>
+          </div>
+          <label className="remarks-field">
+            Remarks
+            <textarea
               disabled={!canAct}
-              key={action.id}
-              onClick={() => handleAction(action.id)}
-              title={getManagerActionTitle(canAct, isVisibilityOnly)}
-              type="button"
-            >
-              {action.label}
-            </button>
-          ))}
-        </div>
-        {message ? <p className={message.includes('saved') ? 'form-message success' : 'form-warning'}>{message}</p> : null}
-      </section>
+              onChange={(event) => setRemarks(event.target.value)}
+              placeholder={canAct ? 'Enter manager review remarks before taking action.' : 'Manager review action is no longer available.'}
+              rows={4}
+              value={remarks}
+            />
+          </label>
+          <div className="inline-actions">
+            {getManagerActions(workflowMode).map((action) => (
+              <button
+                disabled={!canAct}
+                key={action.id}
+                onClick={() => handleAction(action.id)}
+                title={getManagerActionTitle(canAct, isVisibilityOnly)}
+                type="button"
+              >
+                {action.label}
+              </button>
+            ))}
+          </div>
+          {message ? <p className={message.includes('saved') ? 'form-message success' : 'form-warning'}>{message}</p> : null}
+        </section>
+      ) : null}
 
       <section className="detail-section">
         <div className="panel-title">
@@ -341,7 +344,7 @@ function getManagerActions(workflowMode: FlagReviewWorkflowMode): Array<{ id: Ma
   }
 
   if (workflowMode === 'manager_view_admin_approve') {
-    return [{ id: 'approve', label: 'Viewed Only' }];
+    return [];
   }
 
   return [
@@ -419,4 +422,24 @@ function getFlagStatusTone(status: FlagStatus) {
   }
 
   return 'warn';
+}
+
+function formatWorkDate(workDate: string) {
+  return new Intl.DateTimeFormat('en-PH', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    timeZone: 'Asia/Manila'
+  }).format(new Date(`${workDate}T00:00:00+08:00`));
+}
+
+function formatTimestamp(timestamp: string) {
+  return new Intl.DateTimeFormat('en-PH', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZone: 'Asia/Manila'
+  }).format(new Date(timestamp));
 }
