@@ -179,15 +179,18 @@ function FlagReviewDetail({
   const canMakeDecision = !isWaitingForManagerPreApproval && record.adminDecisionStatus === 'pending';
   const [remarks, setRemarks] = useState('');
   const [message, setMessage] = useState<string | null>(null);
+  const [messageType, setMessageType] = useState<'success' | 'error'>('success');
 
   function handleAction(action: AdminFlagReviewAction) {
     const result = onAction(record, workflowMode, action, remarks);
     if (!result.ok) {
+      setMessageType('error');
       setMessage(result.error);
       return;
     }
 
     setRemarks('');
+    setMessageType('success');
     setMessage('Admin review action saved to mock history.');
   }
 
@@ -350,7 +353,11 @@ function FlagReviewDetail({
             </button>
           ))}
         </div>
-        {message ? <p className={message.includes('saved') ? 'form-message success' : 'form-warning'}>{message}</p> : null}
+        {message ? (
+          <p className={messageType === 'success' ? 'form-message success' : 'form-warning'}>
+            {message}
+          </p>
+        ) : null}
         <Link className="text-button" to={`/admin/attendance/${record.employeeId}`}>
           View employee attendance detail
         </Link>
