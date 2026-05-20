@@ -39,10 +39,12 @@ export function AdminFlagReviewScreen() {
     return flagReviewRecords.filter((record) => record.status === filter);
   }, [filter, flagReviewRecords]);
   const defaultRecord = flagReviewRecords.find((record) => record.id === initialFlagId) ?? visibleRecords[0] ?? flagReviewRecords[0];
-  const [selectedFlagId, setSelectedFlagId] = useState(defaultRecord.id);
+  const [selectedFlagId, setSelectedFlagId] = useState(defaultRecord?.id ?? '');
   const selectedRecord =
     flagReviewRecords.find((record) => record.id === selectedFlagId) ?? visibleRecords[0] ?? flagReviewRecords[0];
-  const selectedWorkflowMode = getWorkflowModeForFlagType(selectedRecord.flagType, workflowSettings);
+  const selectedWorkflowMode = selectedRecord
+    ? getWorkflowModeForFlagType(selectedRecord.flagType, workflowSettings)
+    : flagReviewWorkflowOptions[0].id;
   const openCount = flagReviewRecords.filter((record) => record.status === 'open').length;
   const highSeverityCount = flagReviewRecords.filter((record) => record.severity === 'high' && record.status === 'open').length;
 
@@ -56,8 +58,10 @@ export function AdminFlagReviewScreen() {
     const nextRecords =
       nextFilter === 'all' ? flagReviewRecords : flagReviewRecords.filter((record) => record.status === nextFilter);
     const nextSelectedRecord = nextRecords[0] ?? flagReviewRecords[0];
-    setSelectedFlagId(nextSelectedRecord.id);
-    setSearchParams({ flag: nextSelectedRecord.id });
+    setSelectedFlagId(nextSelectedRecord?.id ?? '');
+    if (nextSelectedRecord) {
+      setSearchParams({ flag: nextSelectedRecord.id });
+    }
   }
 
   function handleAdminAction(record: FlagReviewRecord, workflowMode: FlagReviewWorkflowMode, action: AdminFlagReviewAction, remarks: string) {
@@ -120,7 +124,7 @@ export function AdminFlagReviewScreen() {
           <div className="flag-review-list">
             {visibleRecords.map((record) => (
               <button
-                className={record.id === selectedRecord.id ? 'active' : ''}
+                className={record.id === selectedRecord?.id ? 'active' : ''}
                 key={record.id}
                 onClick={() => handleSelectRecord(record)}
                 type="button"
@@ -138,11 +142,18 @@ export function AdminFlagReviewScreen() {
           </div>
         </article>
 
-        <FlagReviewDetail
-          onAction={handleAdminAction}
-          record={selectedRecord}
-          workflowMode={selectedWorkflowMode}
-        />
+        {selectedRecord ? (
+          <FlagReviewDetail
+            onAction={handleAdminAction}
+            record={selectedRecord}
+            workflowMode={selectedWorkflowMode}
+          />
+        ) : (
+          <article className="panel empty-state">
+            <strong>No flags to review</strong>
+            <p>All attendance flags have been resolved.</p>
+          </article>
+        )}
       </section>
     </section>
   );
@@ -243,11 +254,15 @@ function FlagReviewDetail({
           <h3>Evidence</h3>
           <Pill tone="neutral">{record.evidence.length}</Pill>
         </div>
-        <ul className="rule-list">
-          {record.evidence.map((item) => (
-            <li key={item}>{item}</li>
-          ))}
-        </ul>
+        {record.evidence?.length ? (
+          <ul className="rule-list">
+            {record.evidence.map((item) => (
+              <li key={item}>{item}</li>
+            ))}
+          </ul>
+        ) : (
+          <p className="queue-disclaimer">No evidence captured for this flag.</p>
+        )}
       </section>
 
       {requiresManagerPreApproval ? (
