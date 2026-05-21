@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useMockAuth } from '../auth/useMockAuth';
+import { useAuth } from '../auth/useAuth';
 import { ConsentGate } from '../components/ConsentGate';
 import { Icon } from '../components/Icon';
 import { LocationWarning } from '../components/LocationWarning';
@@ -31,7 +31,8 @@ const actionLabels: Record<AttendanceEventType, string> = {
 };
 
 export function StationaryScreen() {
-  const { user } = useMockAuth();
+  const { user: authUser } = useAuth();
+  const user = authUser!;
   const locations = useMockLocations();
   const [pendingCount, setPendingCount] = useState(0);
   const [pendingLocationWarning, setPendingLocationWarning] = useState<{

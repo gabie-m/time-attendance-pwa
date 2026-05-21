@@ -1,6 +1,6 @@
-import { NavLink, Outlet } from 'react-router-dom';
+import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { canAccessRoute } from '../auth/permissions';
-import { useMockAuth } from '../auth/useMockAuth';
+import { useAuth } from '../auth/useAuth';
 import { useManualEditRequests } from '../services/mockManualEditService';
 import { Icon } from './Icon';
 
@@ -16,8 +16,14 @@ const navItems = [
 ];
 
 export function AppShell() {
-  const { user, users, setUserId } = useMockAuth();
+  const { signOut, user, users, setUserId } = useAuth();
+  const navigate = useNavigate();
   const manualEditRequests = useManualEditRequests();
+
+  if (!user) {
+    return <Outlet />;
+  }
+
   const visibleNavItems = navItems.filter((item) => canAccessRoute(user, item.to));
   const pendingRequestCount = manualEditRequests.filter((request) => {
     return request.user_id === user.id && request.status === 'pending';
@@ -30,16 +36,28 @@ export function AppShell() {
           <Icon name="logo" />
           <span>Muster</span>
         </div>
-        <label className="role-switcher">
-          Demo role
-          <select value={user.id} onChange={(event) => setUserId(event.target.value)}>
-            {users.map((item) => (
-              <option value={item.id} key={item.id}>
-                {item.role} · {item.attendanceModel}
-              </option>
-            ))}
-          </select>
-        </label>
+        {users.length > 1 ? (
+          <label className="role-switcher">
+            Demo role
+            <select value={user.id} onChange={(event) => setUserId(event.target.value)}>
+              {users.map((item) => (
+                <option value={item.id} key={item.id}>
+                  {item.role} · {item.attendanceModel}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
+        <button
+          className="action-button quiet full"
+          type="button"
+          onClick={async () => {
+            await signOut();
+            navigate('/login', { replace: true });
+          }}
+        >
+          Sign out
+        </button>
         <nav className="nav-list">
           {visibleNavItems.map((item) => (
             <NavLink key={item.to} to={item.to} className="nav-item">

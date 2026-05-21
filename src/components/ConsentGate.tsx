@@ -1,8 +1,8 @@
-import { useMockAuth } from '../auth/useMockAuth';
+import { useAuth } from '../auth/useAuth';
 import { Icon } from './Icon';
 
 export function ConsentGate() {
-  const { giveLocationConsent } = useMockAuth();
+  const { giveLocationConsent } = useAuth();
 
   return (
     <article className="consent-panel">
