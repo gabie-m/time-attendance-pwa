@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { useMockAuth } from '../auth/useMockAuth';
+import { useAuth } from '../auth/useAuth';
 import { MetricCard } from '../components/MetricCard';
 import { Pill } from '../components/Pill';
 import {
@@ -20,7 +20,8 @@ const filters: Array<{ value: RequestFilter; label: string }> = [
 ];
 
 export function MyRequestsScreen() {
-  const { user } = useMockAuth();
+  const { user: authUser } = useAuth();
+  const user = authUser!;
   const allRequests = useManualEditRequests();
   const [filter, setFilter] = useState<RequestFilter>('all');
   const [message, setMessage] = useState('');

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { mockUsers } from '../mocks/mockUsers';
-import { useMockAuth } from '../auth/useMockAuth';
+import { useAuth } from '../auth/useAuth';
 import { managerRows } from '../mocks/mockReportData';
 import { MetricCard } from '../components/MetricCard';
 import { Pill } from '../components/Pill';
@@ -23,7 +23,8 @@ const managerRequestFilters: Array<{ value: ManagerRequestFilter; label: string 
 ];
 
 export function ManagerScreen() {
-  const { user } = useMockAuth();
+  const { user: authUser } = useAuth();
+  const user = authUser!;
   const allRequests = useManualEditRequests();
   const pendingRequests = allRequests.filter((request) => request.status === 'pending');
   const approvedRequests = allRequests.filter((request) => request.status === 'approved');

@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { useMockAuth } from '../auth/useMockAuth';
+import { useAuth } from '../auth/useAuth';
 import { Pill } from '../components/Pill';
 import { useFlagReviewRecords } from '../hooks/useFlagReviewRecords';
 import { useFlagReviewWorkflowSettings } from '../hooks/useFlagReviewWorkflowSettings';
@@ -26,7 +26,8 @@ const flagFilters: Array<{ value: FlagFilter; label: string }> = [
 
 export function ManagerFlagReviewScreen() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const { user } = useMockAuth();
+  const { user: authUser } = useAuth();
+  const user = authUser!;
   const initialFlagId = searchParams.get('flag');
   const [filter, setFilter] = useState<FlagFilter>('pending');
   const flagReviewRecords = useFlagReviewRecords();
