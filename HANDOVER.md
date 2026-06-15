@@ -60,7 +60,7 @@ Development phases:
 
 - No hard maximum offline capture window for MVP.
 - Flag as `late_sync` warning if server receives an offline record more than 24 hours after local capture.
-- Flag as `clock_discrepancy` high severity if delta between local capture and server receive time is greater than 30 minutes.
+- Flag as `clock_discrepancy` high severity if delta between local capture and server receive time exceeds the admin-configurable `clock_discrepancy_threshold_minutes` rule. Seeded MVP default: 5 minutes.
 - Clock discrepancy does not block the attendance record.
 - Suspicious offline records are admin-review only.
 - Offline records should preserve original local timestamp and server sync timestamp.
@@ -171,18 +171,15 @@ Development phases:
 
 ### Configurable Rule Defaults
 
-- Current merged attendance-rules service fallback values:
+- In the MVP, all attendance rules below are admin-configurable through the `attendance_rules` table. The seeded values and merged service fallbacks are:
   - `late_grace_minutes`: 0.
   - `overtime_threshold_minutes`: 480.
   - `lunch_deduction_minutes`: 60.
   - `photo_time_mismatch_threshold_minutes`: 5.
   - `clock_discrepancy_threshold_minutes`: 5.
-- Documentation conflict to resolve before backend enforcement: older rules below and `docs/business-rules.md` state late grace 5 minutes and clock discrepancy greater than 30 minutes.
 - `late_handling_mode`: `flag_only`. Options: `flag_only`, `flag_and_deduct`.
-- `default_lunch_minutes`: 60.
 - `early_lunch_return_threshold_minutes`: 30.
 - `short_attendance_gap_confirmation_minutes`: 30.
-- `overtime_threshold_hours`: 8.
 - `travel_time_reporting_mode`: `paid_non_productive_separate`.
 - `max_edit_request_days_back`: 30.
 - `flag_review_workflow_mode_by_flag_type`: per flag type enum map.

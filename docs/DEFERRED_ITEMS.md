@@ -86,7 +86,6 @@ Update this document whenever a deferred item is built, a gap is resolved, or a 
 | G-11 | `users` array in real auth provider | `src/auth/AuthProvider.tsx` | Leftover mock pattern. Real auth provider only needs the single authenticated `user`. Clean up after auth is stable. |
 | G-12 | `giveLocationConsent` in real auth provider | `src/auth/AuthProvider.tsx` | Present but will be revisited when proper consent model is built. No immediate impact. |
 | G-13 | `useMockAuth` still exists | `src/auth/` | Not deleted, just unused after `useAuth` migration. Clean up after `feature/supabase-auth` is stable. |
-| G-16 | Attendance-rule default documentation mismatch | `attendanceRulesService.ts`, `docs/business-rules.md`, `HANDOVER.md` | The merged service uses late grace `0` and clock discrepancy threshold `5`, while older rule documentation states late grace `5` and clock discrepancy `30`. Confirm approved values before real backend enforcement. |
 
 ### Architecture
 | # | Gap | Where | Notes |
@@ -100,6 +99,7 @@ Update this document whenever a deferred item is built, a gap is resolved, or a 
 | # | Item | Resolution |
 |---|------|------------|
 | G-14 | Attendance engine reads hardcoded values | Resolved by `feature/attendance-rules-engine`, merged to `main` in PR #4. Active rules are date-scoped, cached for five minutes, and have approved mock-mode fallbacks. The existing stationary lunch deduction calculation now reads from the rules service. |
+| G-16 | Attendance-rule default documentation mismatch | Resolved on 2026-06-15. Seeded defaults are late grace `0`, clock discrepancy `5`, photo time mismatch `5`, lunch deduction `60`, and overtime threshold `480` minutes. All are admin-configurable in the MVP. |
 
 ---
 
