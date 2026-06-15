@@ -1,6 +1,6 @@
 # Deferred Items, Known Gaps & Future Decisions
 **Project:** Time and Attendance PWA
-**Last Updated:** 2026-05-22
+**Last Updated:** 2026-06-15
 **Maintained by:** Claude (Development Consultant)
 
 ---
@@ -71,7 +71,7 @@ Update this document whenever a deferred item is built, a gap is resolved, or a 
 |---|-----|-------|-------|
 | G-01 | Self-service profile updates | `users` table RLS | No UPDATE policy for users editing their own name or email. Currently admin-controlled only. Needs proper approval workflow when built. |
 | G-02 | Manager visibility of inactive staff categories | `staff_categories` RLS | Managers cannot see inactive categories when reviewing historical staff profiles that reference them. Minor edge case. |
-| G-03 | Manager SELECT policy on users and staff_profiles tables | `users` and `staff_profiles` RLS | Deferred until `manager_staff_assignments` table exists. Mira to add these policies during that table's review block. |
+| G-03 | Manager SELECT policy on users and staff_profiles tables | `users` and `staff_profiles` RLS | `manager_staff_assignments` now exists on `feature/supabase-schema`; confirm these policies during schema review before merge. |
 | G-04 | Auth consent model | `users` table | `locationConsentGivenAt` is currently a UI-only mock field on MockUser. Needs a proper home — likely `user_consents` table or field on `staff_profiles` — when real auth is implemented. |
 | G-05 | attendance_rules scope | `attendance_rules` table | Currently global rules only. Future consideration: per-location or per-staff-type rules if clients need different configurations. |
 
@@ -86,12 +86,20 @@ Update this document whenever a deferred item is built, a gap is resolved, or a 
 | G-11 | `users` array in real auth provider | `src/auth/AuthProvider.tsx` | Leftover mock pattern. Real auth provider only needs the single authenticated `user`. Clean up after auth is stable. |
 | G-12 | `giveLocationConsent` in real auth provider | `src/auth/AuthProvider.tsx` | Present but will be revisited when proper consent model is built. No immediate impact. |
 | G-13 | `useMockAuth` still exists | `src/auth/` | Not deleted, just unused after `useAuth` migration. Clean up after `feature/supabase-auth` is stable. |
+| G-16 | Attendance-rule default documentation mismatch | `attendanceRulesService.ts`, `docs/business-rules.md`, `HANDOVER.md` | The merged service uses late grace `0` and clock discrepancy threshold `5`, while older rule documentation states late grace `5` and clock discrepancy `30`. Confirm approved values before real backend enforcement. |
 
 ### Architecture
 | # | Gap | Where | Notes |
 |---|-----|-------|-------|
-| G-14 | Attendance engine reads hardcoded values | Attendance calculation logic | Currently uses hardcoded late/overtime/lunch values. Must be updated to read from `attendance_rules` table. Ari to address in `feature/attendance-rules-engine`. |
 | G-15 | No open session constraint enforced in frontend | Attendance capture screens | Backend will reject duplicate stationary sessions but frontend should also disable the action with a clear message. |
+
+---
+
+## Resolved Items
+
+| # | Item | Resolution |
+|---|------|------------|
+| G-14 | Attendance engine reads hardcoded values | Resolved by `feature/attendance-rules-engine`, merged to `main` in PR #4. Active rules are date-scoped, cached for five minutes, and have approved mock-mode fallbacks. The existing stationary lunch deduction calculation now reads from the rules service. |
 
 ---
 
@@ -112,8 +120,8 @@ Update this document whenever a deferred item is built, a gap is resolved, or a 
 | Branch | Status | Depends On |
 |--------|--------|------------|
 | `feature/supabase-auth` | ✅ Merged to main | — |
-| `feature/attendance-rules-engine` | ⏳ Not started | `feature/supabase-auth` merged ✅ |
-| `feature/attendance-integrity` | ⏳ Not started | `feature/attendance-rules-engine` merged |
+| `feature/attendance-rules-engine` | ✅ Merged to main | `feature/supabase-auth` merged ✅ |
+| `feature/attendance-integrity` | ⏳ Not started | `feature/attendance-rules-engine` merged ✅ |
 | `feature/session-integrity` | ⏳ Not started | `feature/supabase-auth` merged ✅ |
 | `feature/staff-categories` | ⏳ Not started | `feature/supabase-auth` merged ✅ |
 | `feature/device-registration` | ⏳ Not started | `feature/supabase-auth` merged ✅ |
@@ -128,12 +136,12 @@ Update this document whenever a deferred item is built, a gap is resolved, or a 
 | `users` | ✅ Approved |
 | `staff_categories` | ✅ Approved |
 | `staff_profiles` | ✅ Approved |
-| `manager_staff_assignments` | ⏳ Not started |
-| `locations` | ⏳ Not started |
-| `user_location_assignments` | ⏳ Not started |
-| `schedules` | ⏳ Not started |
-| `schedule_days` | ⏳ Not started |
-| `attendance_sessions` | ⏳ Not started |
+| `manager_staff_assignments` | 🔄 Implemented on `feature/supabase-schema`, pending merge/review |
+| `locations` | 🔄 Implemented on `feature/supabase-schema`, pending merge/review |
+| `user_location_assignments` | 🔄 Implemented on `feature/supabase-schema`, pending merge/review |
+| `schedules` | 🔄 Implemented on `feature/supabase-schema`, pending merge/review |
+| `schedule_days` | 🔄 Implemented on `feature/supabase-schema`, pending merge/review |
+| `attendance_sessions` | 🔄 Implemented on `feature/supabase-schema`, pending merge/review |
 | `attendance_events` | ⏳ Not started |
 | `attendance_flags` | ⏳ Not started |
 | `manual_edit_requests` | ⏳ Not started |
