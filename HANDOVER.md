@@ -8,7 +8,7 @@ This project is a production-minded MVP for a Time & Attendance Monitoring Syste
 
 Frontend: React + TypeScript + Vite PWA with React Router. Mock services currently use localStorage and static files under `src/mocks/`; Dexie is present for IndexedDB offline queue scaffolding and must be used for real offline sync before backend integration.
 
-Backend: Supabase/Postgres is the selected backend foundation. Supabase Auth client integration is merged, and the initial raw SQL migration is in progress on `feature/supabase-schema`. Route guards in the frontend are UX only; real security must be enforced server-side through RLS, API authorization, and role checks.
+Backend: Supabase/Postgres is the selected backend foundation. Supabase Auth client integration is merged, and the initial raw SQL migration is in progress on `feature/supabase-schema`. Route guards in the frontend are UX only; real security must be enforced server-side through RLS, API authorization, and role checks. Architecture decisions are tracked in `docs/ARCHITECTURE_DECISIONS.md`.
 
 Database plan: Postgres tables for users, staff profiles, locations, assignments, sessions, attendance events, flags, manual edit requests, manual adjustments, refresh tokens, attendance rules, audit logs, and exports. Attendance events are immutable. Corrections create adjustment records.
 
@@ -60,7 +60,9 @@ Development phases:
 
 - No hard maximum offline capture window for MVP.
 - Flag as `late_sync` warning if server receives an offline record more than 24 hours after local capture.
-- Flag as `clock_discrepancy` high severity if delta between local capture and server receive time exceeds the admin-configurable `clock_discrepancy_threshold_minutes` rule. Seeded MVP default: 5 minutes.
+- Flag as `clock_discrepancy` high severity if device-reported capture time differs from trusted server time by more than the admin-configurable `clock_discrepancy_threshold_minutes` rule. Seeded MVP default: 5 minutes.
+- Do not create `clock_discrepancy` solely because an offline record was received later than it was captured; offline queue delay is expected and is handled by `offline_submission` and `late_sync`.
+- Supabase/PostgreSQL server time is the authoritative trusted time source for MVP; browser/device time is evidence only.
 - Clock discrepancy does not block the attendance record.
 - Suspicious offline records are admin-review only.
 - Offline records should preserve original local timestamp and server sync timestamp.
@@ -168,6 +170,8 @@ Development phases:
 - Attendance summaries and audit flags retained according to payroll/legal requirements.
 - Location consent screen required before first attendance action.
 - Consent text: "This app captures your location only when you submit an attendance action, and approximately every 1.5 hours while you are timed in."
+- Attendance photos use private Supabase Storage, private object paths, and signed URLs. Recommended bucket: `attendance-photos`; recommended path: `users/{user_id}/{work_date}/{session_id}/{client_event_id}.jpg`.
+- Photo retention default direction is 12 months, pending client/legal confirmation before production photo storage.
 
 ### Configurable Rule Defaults
 
@@ -329,6 +333,7 @@ Remaining in current phase:
 
 - `HANDOVER.md`: this handover file.
 - `docs/business-rules.md`: source-of-truth rule document for current MVP decisions.
+- `docs/ARCHITECTURE_DECISIONS.md`: decision log for architecture and product behavior choices.
 - `.env.example`: includes optional Google Maps API key placeholder.
 - `package.json`: React/Vite/Dexie/PWA dependencies and scripts.
 - `pet-runs/`: unrelated generated/local artifact directory present in working tree; do not rely on it for app behavior.

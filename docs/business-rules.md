@@ -12,7 +12,8 @@ These rules are enforced automatically and are not configurable.
 - Precise GPS coordinates are nulled after 12 months. Validation status and audit flags remain.
 - A location consent screen is required before the first attendance action.
 - Offline records are accepted but flagged if received more than 24 hours after capture.
-- A clock discrepancy greater than 30 minutes triggers an admin-review flag.
+- A clock discrepancy greater than the admin-configurable `clock_discrepancy_threshold_minutes` rule triggers a high-severity admin-review flag. The seeded MVP default is 5 minutes.
+- Supabase/PostgreSQL server time is the trusted time source for MVP. Browser/device time is captured as evidence only.
 - iOS offline sync only occurs when the app is opened with an internet connection.
 - Push notifications on iOS require iOS 16.4 or later and the app installed to the home screen.
 - Deactivated user records are accepted if captured before the deactivation timestamp and flagged for admin review.
@@ -44,7 +45,7 @@ These rules are admin-configurable through the `attendance_rules` table in the M
 | Rule Key | Default | Type | Description |
 |---|---:|---|---|
 | `late_grace_minutes` | `0` | integer | Minutes after scheduled start before a late flag is created. |
-| `clock_discrepancy_threshold_minutes` | `5` | integer | Maximum allowed difference between local capture time and server receive time before a clock discrepancy flag is created. |
+| `clock_discrepancy_threshold_minutes` | `5` | integer | Maximum allowed difference between device-reported capture time and trusted server time before a clock discrepancy flag is created. Offline queue delay alone must not create this flag. |
 | `photo_time_mismatch_threshold_minutes` | `5` | integer | Maximum allowed difference between photo metadata time and attendance capture time before a mismatch flag is created. |
 | `lunch_deduction_minutes` | `60` | integer | Default unpaid lunch deduction applied to working-time calculations. |
 | `overtime_threshold_minutes` | `480` | integer | Working minutes above this threshold become overtime candidates or overtime totals depending on approval state. |
@@ -88,9 +89,11 @@ These rules are admin-configurable through the `attendance_rules` table in the M
 
 - No hard maximum offline window for MVP.
 - Create `late_sync` warning flag when `received_at_server - captured_at_local > 24 hours`.
-- Create `clock_discrepancy` high-severity flag when the delta between local capture time and server receive time exceeds the admin-configurable `clock_discrepancy_threshold_minutes` rule. The seeded MVP default is 5 minutes.
+- Create `clock_discrepancy` high-severity flag when device-reported capture time differs from trusted server time by more than the admin-configurable `clock_discrepancy_threshold_minutes` rule. The seeded MVP default is 5 minutes.
+- Do not create `clock_discrepancy` solely because an offline record was received later than it was captured; that expected delay is handled by `offline_submission` and `late_sync`.
 - Clock discrepancy flags do not block the record.
 - Clock discrepancy flag detail must include the exact delta in minutes.
+- `received_at_server` must be generated from backend/database server time, not from the browser.
 - Suspicious offline records can be cleared only by admins.
 
 ## Flag Review Decision Rules

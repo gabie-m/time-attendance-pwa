@@ -108,10 +108,17 @@ Update this document whenever a deferred item is built, a gap is resolved, or a 
 | # | Decision Needed | Context | Status |
 |---|----------------|---------|--------|
 | O-01 | `attendance_rules` per-staff-type scope | Currently global only. If a client needs different overtime rules for roving vs stationary staff, schema needs a scope column. | Defer to post-MVP |
-| O-02 | NTP server selection | Which trusted time server to use for clock discrepancy detection. Needs to be reliable in Philippine network conditions. | Decide before `feature/attendance-integrity` |
-| O-03 | Supabase Storage bucket structure | How to organize photo storage — by user, by date, by session? Affects photo URL format stored in `attendance_events.photo_url`. | Decide before `feature/attendance-integrity` |
-| O-04 | Photo retention policy | How long are punch photos kept? Storage costs grow over time. | Decide before Phase 7 |
-| O-05 | Export file storage | Where do generated export files live? Supabase Storage bucket needed for `export_jobs.file_url`. | Decide before Phase 7 |
+| O-04 | Photo retention policy | Default direction is 12 months, matching precise GPS retention, but final retention must be confirmed against client, payroll, and legal requirements. | Provisional; finalize before production photo storage |
+| O-05 | Export file storage | MVP CSV exports are synchronous direct response streams. Async Excel/PDF/large exports will need private storage and signed URLs. | Provisional; finalize before Phase 7 |
+
+---
+
+## Decisions Moved To Architecture Decision Log
+
+| # | Item | Resolution |
+|---|------|------------|
+| O-02 | NTP server selection | Resolved in `docs/ARCHITECTURE_DECISIONS.md`. Supabase/PostgreSQL server time is the authoritative time source for MVP; browser time is evidence only. |
+| O-03 | Supabase Storage bucket structure | Resolved in `docs/ARCHITECTURE_DECISIONS.md`. Attendance photos use a private `attendance-photos` bucket, private object paths, and signed URLs. |
 
 ---
 
