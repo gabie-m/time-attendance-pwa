@@ -2,7 +2,7 @@
 
 ## 1. Project Overview
 
-This project is a production-minded MVP for a Time & Attendance Monitoring System built as a mobile-first Progressive Web App. The current frontend stack is React 19, TypeScript, Vite, React Router, TanStack Query, Dexie for local IndexedDB scaffolding, Supabase Auth/client integration, and vite-plugin-pwa. The app remains mock-first for local development through `VITE_USE_MOCK_AUTH=true`, while real Supabase authentication and database-driven attendance-rule reads are now wired behind environment configuration. The initial Supabase migration is being developed separately on `feature/supabase-schema` and currently covers approved tables through `attendance_sessions`, but it has not yet merged to `main`.
+This project is a production-minded MVP for a Time & Attendance Monitoring System built as a mobile-first Progressive Web App. The current frontend stack is React 19, TypeScript, Vite, React Router, TanStack Query, Dexie for local IndexedDB scaffolding, Supabase Auth/client integration, and vite-plugin-pwa. The app remains mock-first for local development through `VITE_USE_MOCK_AUTH=true`, while real Supabase authentication and database-driven attendance-rule reads are now wired behind environment configuration. The initial Supabase migration on `feature/supabase-schema` covers the foundation through `attendance_sessions`, including schedule-change approval and audit workflows. It passed a clean local `supabase db reset --local --no-seed`, is pushed to origin, and awaits merge to `main`.
 
 ## 2. Approved Architecture Summary
 
@@ -23,7 +23,7 @@ Development phases:
 - Phase 1B, admin setup/location management: substantially complete in mock form.
 - Phase 1C, manual edit request flow: substantially complete in mock form.
 - Phase 1D, reports, attendance detail, and flag review workflows: substantially complete as static/mock UI; visual cleanup remains on `ui/visual-cleanup`.
-- Phase 2, backend/schema/auth foundation: in progress. Shared Supabase/mock auth and database-driven attendance rules are merged; the initial schema migration is in progress on `feature/supabase-schema`.
+- Phase 2, backend/schema/auth foundation: in progress. Shared Supabase/mock auth and database-driven attendance rules are merged; the locally validated schema foundation awaits merge from `feature/supabase-schema`.
 - Phase 3, attendance API and validation engine: partially started through the attendance-rules service; event validation and persistence APIs are not started.
 - Phase 4, offline sync implementation: only IndexedDB queue scaffold exists; full sync not started.
 - Phase 5+, notifications, exports, payroll-final reporting, security hardening, background jobs: deferred.
@@ -283,7 +283,7 @@ Completed and merged to `main`:
 - `docs/DEFERRED_ITEMS.md` tracker for deferred work, known gaps, and open decisions.
 
 In progress outside `main`:
-- `feature/supabase-schema`: initial raw SQL migration through `attendance_sessions`; pending review/merge.
+- `feature/supabase-schema`: locally validated raw SQL foundation through `attendance_sessions`, including locations, assignments, effective-dated schedules, manager delegation, audit logs, and schedule-change requests; approved and pending merge.
 - `ui/visual-cleanup`: Reports, Admin Flag Review, and Manager Flag Review visual cleanup commits; pending review/merge.
 
 Current development instructions:
@@ -297,7 +297,8 @@ Current development instructions:
 - Review pages should show only role-relevant actions and workflow responsibilities.
 
 Remaining in current phase:
-- Review and merge `feature/supabase-schema`.
+- Merge `feature/supabase-schema`; do not deploy it to a hosted database until a development project is explicitly created and approved.
+- Start the next managed schema migration block for immutable `attendance_events` and `attendance_flags` after the foundation branch merges.
 - Review and merge `ui/visual-cleanup`.
 - Add GPS coordinate hover/tap popover with Google Maps fallback link.
 - Possibly add shared reusable flag review detail components to reduce duplication between Admin and Manager screens.
@@ -307,7 +308,7 @@ Remaining in current phase:
 
 - No attendance persistence/validation API exists yet.
 - Real Supabase Auth is wired but still depends on deployment credentials and the schema/profile tables being available.
-- The initial migration exists on `feature/supabase-schema` but has not merged or been pushed to Supabase.
+- The initial migration is pushed to `origin/feature/supabase-schema` and passed a clean local reset; it has not merged or been deployed to hosted Supabase.
 - Mock auth remains a local-development fallback and is not a production security boundary.
 - `locationConsentGivenAt` exists in mock auth state for UI consent gate, while database-shaped `users.location_consent_given_at` is only documented for backend.
 - Shared auth still uses `MockUser`; replace it with a production `AuthUser` once the final database shape is merged.
@@ -325,7 +326,7 @@ Remaining in current phase:
 - Data retention job for GPS expiry is not implemented.
 - pg-boss/background job infrastructure is deferred.
 - Need decide whether admins should have staff profile/default attendance model in production even if they do not perform attendance.
-- Need finish review of schema RLS policies and decide exact attendance API route design before Phase 3 event persistence.
+- Attendance events, flags, correction records, devices, exports, and roving overrides remain in later migration blocks; no attendance persistence API exists yet.
 
 ## 7. Files Created or Modified
 
@@ -422,4 +423,4 @@ Remaining in current phase:
 
 ## 8. Resume Instructions
 
-Resume from current `main` after reviewing the pending `feature/supabase-schema` and `ui/visual-cleanup` branches. Ari's next planned branches are `feature/attendance-integrity`, `feature/session-integrity`, `feature/staff-categories`, and `feature/device-registration`; do not start one without an approved brief. Keep mock mode fully functional without Supabase credentials. Do not move workflow configuration back into review pages; it belongs in Admin settings. Preserve role separation: Manager screens show manager responsibility only, Admin screens show admin responsibility only. Continue running `npm run lint` and `npm run build` after changes.
+Resume from current `main` after merging the pending `feature/supabase-schema` and reviewing `ui/visual-cleanup`. Ari manages the next-stage schema agent for immutable `attendance_events` and `attendance_flags`; do not start application event persistence until that migration block is approved. Keep mock mode fully functional without Supabase credentials. Do not move workflow configuration back into review pages; it belongs in Admin settings. Preserve role separation: Manager screens show manager responsibility only, Admin screens show admin responsibility only. Continue running `npm run lint` and `npm run build` after changes.

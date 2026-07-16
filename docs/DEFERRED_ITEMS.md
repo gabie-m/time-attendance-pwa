@@ -1,6 +1,6 @@
 # Deferred Items, Known Gaps & Future Decisions
 **Project:** Time and Attendance PWA
-**Last Updated:** 2026-06-15
+**Last Updated:** 2026-07-16
 **Maintained by:** Claude (Development Consultant)
 
 ---
@@ -28,7 +28,7 @@ Update this document whenever a deferred item is built, a gap is resolved, or a 
 ### Attendance Features
 | # | Item | Notes | Priority |
 |---|------|-------|----------|
-| D-04 | Roving overrides UI | Admin UI for temporarily giving stationary staff roving access. Table exists in schema. Service layer stub to be built in `feature/session-integrity`. | Phase 6 |
+| D-04 | Roving overrides UI | Admin UI for temporarily giving stationary staff roving access. Schema table is deferred to a later migration block. | Phase 6 |
 | D-05 | Temporary roving overrides | Full workflow for admin to assign and manage overrides. | Phase 6 |
 | D-06 | Multi-location schedules | Assigning staff to multiple locations with scheduled rotation. | Post-MVP |
 | D-07 | Passive GPS pings | GPS ping every 1.5 hours while timed in for stationary staff. Approved architecture includes `gps_ping` event type. | Post-MVP |
@@ -37,9 +37,9 @@ Update this document whenever a deferred item is built, a gap is resolved, or a 
 ### Admin Features
 | # | Item | Notes | Priority |
 |---|------|-------|----------|
-| D-09 | Export functionality | CSV, XLSX, PDF exports. `export_jobs` table exists in schema. UI placeholder already built. | Phase 7 |
+| D-09 | Export functionality | CSV, XLSX, PDF exports. `export_jobs` is planned for a later migration block. UI placeholder already built. | Phase 7 |
 | D-10 | Attendance rules UI | Admin screen for viewing and updating configurable attendance rules. Backend table exists. | Phase 6 |
-| D-11 | Staff categories management UI | Admin screen for adding and managing job categories. Table exists in schema with seed data. | Phase 6 (feature/staff-categories) |
+| D-11 | Staff categories management UI | Admin screen for adding and managing job categories. Schema and seed data are locally validated on `feature/supabase-schema`, pending merge. | Phase 6 (feature/staff-categories) |
 | D-12 | Device management UI | Admin screen showing registered devices per user, primary device flag, suspicious device flags. | Post-MVP |
 | D-13 | Admin manual edit oversight | Admin view of all correction requests and disputes across all managers. | Phase 5 (after manager workflows) |
 
@@ -71,8 +71,7 @@ Update this document whenever a deferred item is built, a gap is resolved, or a 
 |---|-----|-------|-------|
 | G-01 | Self-service profile updates | `users` table RLS | No UPDATE policy for users editing their own name or email. Currently admin-controlled only. Needs proper approval workflow when built. |
 | G-02 | Manager visibility of inactive staff categories | `staff_categories` RLS | Managers cannot see inactive categories when reviewing historical staff profiles that reference them. Minor edge case. |
-| G-03 | Manager SELECT policy on users and staff_profiles tables | `users` and `staff_profiles` RLS | `manager_staff_assignments` now exists on `feature/supabase-schema`; confirm these policies during schema review before merge. |
-| G-04 | Auth consent model | `users` table | `locationConsentGivenAt` is currently a UI-only mock field on MockUser. Needs a proper home — likely `user_consents` table or field on `staff_profiles` — when real auth is implemented. |
+| G-04 | Auth consent model | `users` table | MVP storage is `users.location_consent_given_at`. A versioned `user_consents` history remains a future enhancement if consent versioning is required. |
 | G-05 | attendance_rules scope | `attendance_rules` table | Currently global rules only. Future consideration: per-location or per-staff-type rules if clients need different configurations. |
 
 ### Frontend
@@ -100,6 +99,7 @@ Update this document whenever a deferred item is built, a gap is resolved, or a 
 |---|------|------------|
 | G-14 | Attendance engine reads hardcoded values | Resolved by `feature/attendance-rules-engine`, merged to `main` in PR #4. Active rules are date-scoped, cached for five minutes, and have approved mock-mode fallbacks. The existing stationary lunch deduction calculation now reads from the rules service. |
 | G-16 | Attendance-rule default documentation mismatch | Resolved on 2026-06-15. Seeded defaults are late grace `0`, clock discrepancy `5`, photo time mismatch `5`, lunch deduction `60`, and overtime threshold `480` minutes. All are admin-configurable in the MVP. |
+| G-03 | Manager SELECT policy on users and staff_profiles tables | Resolved in the locally validated `feature/supabase-schema` foundation through direct-team and active delegated-team RLS policies; pending merge to `main`. |
 
 ---
 
@@ -128,32 +128,32 @@ Update this document whenever a deferred item is built, a gap is resolved, or a 
 |--------|--------|------------|
 | `feature/supabase-auth` | ✅ Merged to main | — |
 | `feature/attendance-rules-engine` | ✅ Merged to main | `feature/supabase-auth` merged ✅ |
-| `feature/attendance-integrity` | ⏳ Not started | `feature/attendance-rules-engine` merged ✅ |
+| `feature/attendance-integrity` | ⏳ Not started | Schema foundation and the next `attendance_events` / `attendance_flags` migration block merged |
 | `feature/session-integrity` | ⏳ Not started | `feature/supabase-auth` merged ✅ |
 | `feature/staff-categories` | ⏳ Not started | `feature/supabase-auth` merged ✅ |
 | `feature/device-registration` | ⏳ Not started | `feature/supabase-auth` merged ✅ |
 
 ---
 
-## Mira's Migration Progress
+## Schema Migration Progress
 
 | Table | Status |
 |-------|--------|
-| `attendance_rules` | ✅ Approved |
-| `users` | ✅ Approved |
-| `staff_categories` | ✅ Approved |
-| `staff_profiles` | ✅ Approved |
-| `manager_staff_assignments` | 🔄 Implemented on `feature/supabase-schema`, pending merge/review |
-| `locations` | 🔄 Implemented on `feature/supabase-schema`, pending merge/review |
-| `user_location_assignments` | 🔄 Implemented on `feature/supabase-schema`, pending merge/review |
-| `schedules` | 🔄 Implemented on `feature/supabase-schema`, pending merge/review |
-| `schedule_days` | 🔄 Implemented on `feature/supabase-schema`, pending merge/review |
-| `attendance_sessions` | 🔄 Implemented on `feature/supabase-schema`, pending merge/review |
+| `attendance_rules` | 🔄 Locally validated on `feature/supabase-schema`, pending merge |
+| `users` | 🔄 Locally validated on `feature/supabase-schema`, pending merge |
+| `staff_categories` | 🔄 Locally validated on `feature/supabase-schema`, pending merge |
+| `staff_profiles` | 🔄 Locally validated on `feature/supabase-schema`, pending merge |
+| `manager_staff_assignments` | 🔄 Locally validated on `feature/supabase-schema`, pending merge |
+| `locations` | 🔄 Locally validated on `feature/supabase-schema`, pending merge |
+| `user_location_assignments` | 🔄 Locally validated on `feature/supabase-schema`, pending merge |
+| `schedules` | 🔄 Locally validated on `feature/supabase-schema`, pending merge |
+| `schedule_days` | 🔄 Locally validated on `feature/supabase-schema`, pending merge |
+| `attendance_sessions` | 🔄 Locally validated on `feature/supabase-schema`, pending merge |
 | `attendance_events` | ⏳ Not started |
 | `attendance_flags` | ⏳ Not started |
 | `manual_edit_requests` | ⏳ Not started |
 | `manual_adjustments` | ⏳ Not started |
-| `audit_logs` | ⏳ Not started |
+| `audit_logs` | 🔄 Locally validated on `feature/supabase-schema`, pending merge |
 | `devices` | ⏳ Not started |
 | `export_jobs` | ⏳ Not started |
 | `roving_overrides` | ⏳ Not started |
