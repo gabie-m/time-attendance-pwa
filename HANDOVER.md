@@ -2,13 +2,13 @@
 
 ## 1. Project Overview
 
-This project is a production-minded MVP for a Time & Attendance Monitoring System built as a mobile-first Progressive Web App. The current frontend stack is React 19, TypeScript, Vite, React Router, Dexie for local IndexedDB scaffolding, and vite-plugin-pwa. The app is still mock/frontend-first: no real backend, no Supabase connection, and no production database migrations yet. Current work has focused on validating the core product shape: role-based navigation, stationary and roving attendance capture flows, location/GPS warnings, manual edit requests, admin setup, reports, employee attendance details, and manager/admin flag review workflows.
+This project is a production-minded MVP for a Time & Attendance Monitoring System built as a mobile-first Progressive Web App. The current frontend stack is React 19, TypeScript, Vite, React Router, TanStack Query, Dexie for local IndexedDB scaffolding, Supabase Auth/client integration, and vite-plugin-pwa. The app remains mock-first for local development through `VITE_USE_MOCK_AUTH=true`, while real Supabase authentication and database-driven attendance-rule reads are now wired behind environment configuration. The initial Supabase migration is being developed separately on `feature/supabase-schema` and currently covers approved tables through `attendance_sessions`, but it has not yet merged to `main`.
 
 ## 2. Approved Architecture Summary
 
 Frontend: React + TypeScript + Vite PWA with React Router. Mock services currently use localStorage and static files under `src/mocks/`; Dexie is present for IndexedDB offline queue scaffolding and must be used for real offline sync before backend integration.
 
-Backend: planned Supabase/Postgres backend or equivalent Postgres API layer. Route guards in the frontend are UX only; real security must be enforced server-side by API authorization and role checks.
+Backend: Supabase/Postgres is the selected backend foundation. Supabase Auth client integration is merged, and the initial raw SQL migration is in progress on `feature/supabase-schema`. Route guards in the frontend are UX only; real security must be enforced server-side through RLS, API authorization, and role checks. Architecture decisions are tracked in `docs/ARCHITECTURE_DECISIONS.md`.
 
 Database plan: Postgres tables for users, staff profiles, locations, assignments, sessions, attendance events, flags, manual edit requests, manual adjustments, refresh tokens, attendance rules, audit logs, and exports. Attendance events are immutable. Corrections create adjustment records.
 
@@ -22,9 +22,9 @@ Development phases:
 - Phase 1A, frontend shell and role-based attendance flows: substantially complete in mock form.
 - Phase 1B, admin setup/location management: substantially complete in mock form.
 - Phase 1C, manual edit request flow: substantially complete in mock form.
-- Phase 1D, reports, attendance detail, and flag review workflows: in progress and mostly complete as static/mock UI.
-- Phase 2, backend/schema/auth foundation: not started.
-- Phase 3, attendance API and validation engine: not started.
+- Phase 1D, reports, attendance detail, and flag review workflows: substantially complete as static/mock UI; visual cleanup remains on `ui/visual-cleanup`.
+- Phase 2, backend/schema/auth foundation: in progress. Shared Supabase/mock auth and database-driven attendance rules are merged; the initial schema migration is in progress on `feature/supabase-schema`.
+- Phase 3, attendance API and validation engine: partially started through the attendance-rules service; event validation and persistence APIs are not started.
 - Phase 4, offline sync implementation: only IndexedDB queue scaffold exists; full sync not started.
 - Phase 5+, notifications, exports, payroll-final reporting, security hardening, background jobs: deferred.
 
@@ -60,7 +60,9 @@ Development phases:
 
 - No hard maximum offline capture window for MVP.
 - Flag as `late_sync` warning if server receives an offline record more than 24 hours after local capture.
-- Flag as `clock_discrepancy` high severity if delta between local capture and server receive time is greater than 30 minutes.
+- Flag as `clock_discrepancy` high severity if device-reported capture time differs from trusted server time by more than the admin-configurable `clock_discrepancy_threshold_minutes` rule. Seeded MVP default: 5 minutes.
+- Do not create `clock_discrepancy` solely because an offline record was received later than it was captured; offline queue delay is expected and is handled by `offline_submission` and `late_sync`.
+- Supabase/PostgreSQL server time is the authoritative trusted time source for MVP; browser/device time is evidence only.
 - Clock discrepancy does not block the attendance record.
 - Suspicious offline records are admin-review only.
 - Offline records should preserve original local timestamp and server sync timestamp.
@@ -168,15 +170,20 @@ Development phases:
 - Attendance summaries and audit flags retained according to payroll/legal requirements.
 - Location consent screen required before first attendance action.
 - Consent text: "This app captures your location only when you submit an attendance action, and approximately every 1.5 hours while you are timed in."
+- Attendance photos use private Supabase Storage, private object paths, and signed URLs. Recommended bucket: `attendance-photos`; recommended path: `users/{user_id}/{work_date}/{session_id}/{client_event_id}.jpg`.
+- Photo retention default direction is 12 months, pending client/legal confirmation before production photo storage.
 
 ### Configurable Rule Defaults
 
-- `late_grace_minutes`: 5.
+- In the MVP, all attendance rules below are admin-configurable through the `attendance_rules` table. The seeded values and merged service fallbacks are:
+  - `late_grace_minutes`: 0.
+  - `overtime_threshold_minutes`: 480.
+  - `lunch_deduction_minutes`: 60.
+  - `photo_time_mismatch_threshold_minutes`: 5.
+  - `clock_discrepancy_threshold_minutes`: 5.
 - `late_handling_mode`: `flag_only`. Options: `flag_only`, `flag_and_deduct`.
-- `default_lunch_minutes`: 60.
 - `early_lunch_return_threshold_minutes`: 30.
 - `short_attendance_gap_confirmation_minutes`: 30.
-- `overtime_threshold_hours`: 8.
 - `travel_time_reporting_mode`: `paid_non_productive_separate`.
 - `max_edit_request_days_back`: 30.
 - `flag_review_workflow_mode_by_flag_type`: per flag type enum map.
@@ -255,9 +262,9 @@ type CorrectionPayload = {
 
 ## 5. Current Build Phase
 
-Current phase: Phase 1D, frontend-only/mock UI for admin/manager review, reports, and audit workflows.
+Current phase: Phase 2 foundation work is in progress alongside final Phase 1D UI cleanup.
 
-Completed in this phase:
+Completed and merged to `main`:
 - Admin Reports static mock with tabs for Attendance Summary, Late & Undertime, Absences, Overtime, Flagged Records, and Manual Edit Requests.
 - Employee Attendance Detail page at `/admin/attendance/:employeeId`.
 - Mock attendance detail data with recent days, flags, manual edit history, missing punches, clean days, and deactivated employee history.
@@ -268,10 +275,20 @@ Completed in this phase:
 - Admin setting page section for per-flag-type workflow configuration.
 - Mock flag workflow settings service using localStorage.
 - Admin/Manager role-specific workflow display.
+- Shared auth context with mock and Supabase providers selected by `VITE_USE_MOCK_AUTH`.
+- Lazy-loaded real Supabase auth provider, email/password auth service, session subscription, and protected-route redirects.
+- Manager assignment service validation for manager role and overlapping effective-date assignments.
+- Database-driven attendance-rules service with approved mock fallbacks, five-minute caching, and TanStack Query integration.
+- Stationary worked-time display/calculation reads the lunch deduction from the attendance-rules service.
+- `docs/DEFERRED_ITEMS.md` tracker for deferred work, known gaps, and open decisions.
 
-Current phase scope and Codex instructions:
-- Keep this frontend/mock-only until backend foundation starts.
-- Do not connect to a real backend yet.
+In progress outside `main`:
+- `feature/supabase-schema`: initial raw SQL migration through `attendance_sessions`; pending review/merge.
+- `ui/visual-cleanup`: Reports, Admin Flag Review, and Manager Flag Review visual cleanup commits; pending review/merge.
+
+Current development instructions:
+- Keep mock mode fully functional without Supabase credentials.
+- Real Supabase features must remain behind environment configuration until schema and deployment configuration are ready.
 - Keep mock data shaped close to intended database schema.
 - Services can use localStorage for current mock flows; Dexie is reserved for real offline sync queue and should replace localStorage where offline durability matters.
 - No screen should define seed data inline; mock seed data belongs under `src/mocks/`.
@@ -280,17 +297,21 @@ Current phase scope and Codex instructions:
 - Review pages should show only role-relevant actions and workflow responsibilities.
 
 Remaining in current phase:
+- Review and merge `feature/supabase-schema`.
+- Review and merge `ui/visual-cleanup`.
 - Add GPS coordinate hover/tap popover with Google Maps fallback link.
 - Possibly add shared reusable flag review detail components to reduce duplication between Admin and Manager screens.
 - Decide whether to add a dedicated Admin Settings route instead of keeping settings inside `/admin`.
 
 ## 6. Open Decisions & Known Gaps
 
-- No real backend exists yet.
-- No Supabase project is connected yet.
-- No migrations exist yet.
-- Mock auth is not secure; it is only a demo role switcher.
+- No attendance persistence/validation API exists yet.
+- Real Supabase Auth is wired but still depends on deployment credentials and the schema/profile tables being available.
+- The initial migration exists on `feature/supabase-schema` but has not merged or been pushed to Supabase.
+- Mock auth remains a local-development fallback and is not a production security boundary.
 - `locationConsentGivenAt` exists in mock auth state for UI consent gate, while database-shaped `users.location_consent_given_at` is only documented for backend.
+- Shared auth still uses `MockUser`; replace it with a production `AuthUser` once the final database shape is merged.
+- Real auth currently leaves `expectedLocation` empty and carries a mock-style `users` array; clean these up when location assignments are wired.
 - Full offline sync is not implemented; only Dexie queue scaffolding exists.
 - Background sync on iOS is unsupported; UX must continue to be explicit.
 - Google Places address search is scaffolded but requires `VITE_GOOGLE_MAPS_API_KEY`.
@@ -298,13 +319,13 @@ Remaining in current phase:
 - File upload for manual edit requests is deferred.
 - Real notifications are deferred.
 - Excel/PDF exports are deferred.
-- Manager assignment enforcement is not implemented in mock approval queues; mock may show all records.
+- Mock manager assignment writes now validate manager role and reject overlapping assignment date ranges.
 - Payroll export calculations are not implemented.
 - Security review checkpoints still needed at backend auth phase, offline sync phase, and final hardening.
 - Data retention job for GPS expiry is not implemented.
 - pg-boss/background job infrastructure is deferred.
 - Need decide whether admins should have staff profile/default attendance model in production even if they do not perform attendance.
-- Need decide exact backend route/API design and Supabase RLS policies before Phase 2.
+- Need finish review of schema RLS policies and decide exact attendance API route design before Phase 3 event persistence.
 
 ## 7. Files Created or Modified
 
@@ -312,6 +333,7 @@ Remaining in current phase:
 
 - `HANDOVER.md`: this handover file.
 - `docs/business-rules.md`: source-of-truth rule document for current MVP decisions.
+- `docs/ARCHITECTURE_DECISIONS.md`: decision log for architecture and product behavior choices.
 - `.env.example`: includes optional Google Maps API key placeholder.
 - `package.json`: React/Vite/Dexie/PWA dependencies and scripts.
 - `pet-runs/`: unrelated generated/local artifact directory present in working tree; do not rely on it for app behavior.
@@ -319,10 +341,14 @@ Remaining in current phase:
 ### App And Auth
 
 - `src/app/App.tsx`: route definitions and protected route wrapper.
-- `src/auth/MockAuthProvider.tsx`: mock auth provider and demo role switcher state.
+- `src/auth/AppAuthProvider.tsx`: environment-based lazy provider selection; real Supabase provider is not loaded in mock mode.
+- `src/auth/AuthContext.ts`: shared auth context implemented by mock and Supabase providers.
+- `src/auth/AuthProvider.tsx`: real Supabase session/profile provider.
+- `src/auth/MockAuthProvider.tsx`: mock auth provider, demo role switcher state, and mock login/logout fallback.
 - `src/auth/permissions.ts`: frontend route access rules by role/model.
 - `src/auth/types.ts`: mock auth user type.
-- `src/auth/useMockAuth.ts`: auth context hook.
+- `src/auth/useAuth.ts`: shared auth hook used by application screens.
+- `src/auth/useMockAuth.ts`: retained legacy mock hook; currently unused by screens.
 - `src/mocks/mockAuthContext.ts`: React context object for mock auth.
 - `src/mocks/mockUsers.ts`: mock demo users.
 - Removed `src/auth/mockUsers.ts`: seed users moved to `src/mocks/mockUsers.ts`.
@@ -347,6 +373,7 @@ Remaining in current phase:
 - `src/hooks/useStaffSetupRecords.ts`: React hook for staff setup service subscription.
 - `src/hooks/useFlagReviewRecords.ts`: React hook for localStorage-backed flag review records/actions.
 - `src/hooks/useFlagReviewWorkflowSettings.ts`: React hook for flag workflow settings subscription.
+- `src/hooks/useAttendanceRules.ts`: TanStack Query hook for cached attendance rules.
 - `src/offline/offlineQueue.ts`: Dexie IndexedDB pending attendance event queue scaffold.
 - `src/utils/geo.ts`: distance/GPS helper logic.
 - `src/utils/flagReviewWorkflow.ts`: shared workflow labels/copy and formatting helpers.
@@ -364,8 +391,8 @@ Remaining in current phase:
 
 ### Screens
 
-- `src/screens/LoginScreen.tsx`: mock login/demo user selection flow.
-- `src/screens/StationaryScreen.tsx`: stationary attendance flow with GPS/location warnings and short-gap confirmation.
+- `src/screens/LoginScreen.tsx`: shared login form used by mock and real Supabase auth providers.
+- `src/screens/StationaryScreen.tsx`: stationary attendance flow with GPS/location warnings, short-gap confirmation, and rule-driven lunch deduction.
 - `src/screens/RovingScreen.tsx`: roving visit flow with location capture and short visit confirmation.
 - `src/screens/MyRequestsScreen.tsx`: user request list/history.
 - `src/screens/ManagerScreen.tsx`: manager dashboard and manual edit approval queue.
@@ -382,7 +409,11 @@ Remaining in current phase:
 - `src/services/mockManualEditService.ts`: mock manual edit request/adjustment service.
 - `src/services/mockFlagReviewService.ts`: mock Manager/Admin flag review action service with action history.
 - `src/services/mockFlagReviewSettingsService.ts`: mock flag workflow settings service.
+- `src/services/authService.ts`: typed Supabase Auth operations.
+- `src/services/attendanceRulesService.ts`: date-effective attendance-rule reads with mock fallbacks and five-minute caching.
+- `src/services/serviceResult.ts`: shared typed service result helpers.
 - `src/services/googlePlacesService.ts`: optional Google Places loader/mapper.
+- `src/lib/supabaseClient.ts`: nullable Supabase client initialized only when environment credentials exist.
 
 ### Styles And Entry
 
@@ -391,4 +422,4 @@ Remaining in current phase:
 
 ## 8. Resume Instructions
 
-Resume from Phase 1D. The immediate next task should be either add the GPS coordinate hover/tap popover with Google Maps fallback link, reduce duplication between Admin/Manager flag review detail UI, or decide whether Admin settings should move to a dedicated route. Keep all work frontend/mock-only unless explicitly told to start backend Phase 2. Do not move workflow configuration back into review pages; it belongs in Admin settings. Preserve role separation: Manager screens show manager responsibility only, Admin screens show admin responsibility only. Continue running `npm run lint` and `npm run build` after changes.
+Resume from current `main` after reviewing the pending `feature/supabase-schema` and `ui/visual-cleanup` branches. Ari's next planned branches are `feature/attendance-integrity`, `feature/session-integrity`, `feature/staff-categories`, and `feature/device-registration`; do not start one without an approved brief. Keep mock mode fully functional without Supabase credentials. Do not move workflow configuration back into review pages; it belongs in Admin settings. Preserve role separation: Manager screens show manager responsibility only, Admin screens show admin responsibility only. Continue running `npm run lint` and `npm run build` after changes.

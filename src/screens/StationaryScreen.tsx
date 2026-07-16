@@ -9,7 +9,9 @@ import { PlatformNotice } from '../components/PlatformNotice';
 import { Pill } from '../components/Pill';
 import { TimeGapWarning } from '../components/TimeGapWarning';
 import type { AttendanceEvent, AttendanceEventType, Location } from '../domain/types';
+import { useAttendanceRules } from '../hooks/useAttendanceRules';
 import { queueAttendanceEvent, offlineDb } from '../offline/offlineQueue';
+import { getAttendanceRuleValue } from '../services/attendanceRulesService';
 import { useMockLocations } from '../services/mockLocationService';
 import {
   checkCurrentPositionAgainstLocation,
@@ -34,6 +36,7 @@ export function StationaryScreen() {
   const { user: authUser } = useAuth();
   const user = authUser!;
   const locations = useMockLocations();
+  const { data: attendanceRules } = useAttendanceRules();
   const [pendingCount, setPendingCount] = useState(0);
   const [pendingLocationWarning, setPendingLocationWarning] = useState<{
     action: AttendanceEventType;
@@ -81,7 +84,9 @@ export function StationaryScreen() {
 
   const isClockedIn = events.some((event) => event.type === 'time_in') && !events.some((event) => event.type === 'time_out');
   const isOnLunch = events.some((event) => event.type === 'lunch_out') && !events.some((event) => event.type === 'lunch_in');
-  const workedLabel = getWorkedLabel(events);
+  const lunchDeductionMinutes = getAttendanceRuleValue(attendanceRules, 'lunch_deduction_minutes');
+  const lunchDeductionLabel = formatDurationMinutes(lunchDeductionMinutes);
+  const workedLabel = getWorkedLabel(events, lunchDeductionMinutes);
 
   async function handleAttendanceAction(action: AttendanceEventType) {
     if (action !== nextAction) {
@@ -165,7 +170,7 @@ export function StationaryScreen() {
         <strong className="clock-display">{getNowLabel()}<span>{isOnLunch ? ' break' : ' local'}</span></strong>
         <div className="hero-card-row">
           <span>Worked {workedLabel}</span>
-          <span>Lunch fixed 1h</span>
+          <span>Lunch fixed {lunchDeductionLabel}</span>
         </div>
       </article>
 
@@ -226,7 +231,7 @@ export function StationaryScreen() {
       )}
 
       <div className="metric-grid">
-        <MetricCard label="Regular" value={workedLabel} detail="Before lunch deduction" tone="indigo" />
+        <MetricCard label="Regular" value={workedLabel} detail={`After ${lunchDeductionLabel} lunch deduction`} tone="indigo" />
         <MetricCard label="Pending sync" value={String(pendingCount)} detail="Sync on app open" tone="warn" />
       </div>
 
@@ -385,7 +390,7 @@ function getNextActionDetail(nextAction: AttendanceEventType | undefined) {
   return 'Closes the stationary session for the work date.';
 }
 
-function getWorkedLabel(events: AttendanceEvent[]) {
+function getWorkedLabel(events: AttendanceEvent[], lunchDeductionMinutes: number) {
   const timeIn = events.find((event) => event.type === 'time_in');
   const timeOut = events.find((event) => event.type === 'time_out');
 
@@ -396,10 +401,11 @@ function getWorkedLabel(events: AttendanceEvent[]) {
   const end = timeOut ? todayAt(timeOut.localTime) : new Date();
   const start = todayAt(timeIn.localTime);
   const diffMinutes = Math.max(0, Math.floor((end.getTime() - start.getTime()) / 60000));
-  const hours = Math.floor(diffMinutes / 60);
-  const minutes = diffMinutes % 60;
+  const payableMinutes = events.some((event) => event.type === 'lunch_out')
+    ? Math.max(0, diffMinutes - lunchDeductionMinutes)
+    : diffMinutes;
 
-  return `${hours}h ${String(minutes).padStart(2, '0')}m`;
+  return formatDurationMinutes(payableMinutes);
 }
 
 function getTimeGapWarning(action: AttendanceEventType, events: AttendanceEvent[]) {
@@ -429,4 +435,10 @@ function todayAt(timeLabel: string) {
   const date = new Date();
   date.setHours(Number(hour), Number(minute), 0, 0);
   return date;
+}
+
+function formatDurationMinutes(totalMinutes: number) {
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return `${hours}h ${String(minutes).padStart(2, '0')}m`;
 }

@@ -251,11 +251,15 @@ export function updateStaffProfile(input: UpdateStaffProfileInput): ServiceResul
 
 export function assignManager(input: AssignManagerInput): ServiceResult<ManagerStaffAssignment> {
   const users = listUsers();
-  const manager = users.find((user) => user.id === input.manager_id && user.role === 'manager');
+  const manager = users.find((user) => user.id === input.manager_id);
   const staff = users.find((user) => user.id === input.staff_user_id);
 
   if (!manager) {
     return failure('Manager not found.');
+  }
+
+  if (manager.role !== 'manager') {
+    return failure('Selected user must have manager role.');
   }
 
   if (!staff) {
@@ -275,6 +279,21 @@ export function assignManager(input: AssignManagerInput): ServiceResult<ManagerS
       updated_at: now
     };
   });
+
+  if (
+    closedAssignments.some((assignment) => {
+      return assignment.staff_user_id === input.staff_user_id && assignmentsOverlap(
+        {
+          effective_from: input.effective_from,
+          effective_to: input.effective_to ?? null
+        },
+        assignment
+      );
+    })
+  ) {
+    return failure('Manager assignment overlaps an existing active assignment.');
+  }
+
   const nextAssignment: ManagerStaffAssignment = {
     id: crypto.randomUUID(),
     manager_id: input.manager_id,
@@ -400,6 +419,20 @@ function isDuplicateEmployeeCode(employeeCode: string, currentUserId?: string, p
   return profiles.some((profile) => {
     return profile.user_id !== currentUserId && profile.employee_code?.trim().toLowerCase() === normalizedCode;
   });
+}
+
+function assignmentsOverlap(
+  nextAssignment: Pick<ManagerStaffAssignment, 'effective_from' | 'effective_to'>,
+  existingAssignment: Pick<ManagerStaffAssignment, 'effective_from' | 'effective_to'>
+) {
+  return (
+    dateToComparableValue(nextAssignment.effective_from) < dateToComparableValue(existingAssignment.effective_to) &&
+    dateToComparableValue(existingAssignment.effective_from) < dateToComparableValue(nextAssignment.effective_to)
+  );
+}
+
+function dateToComparableValue(dateValue: string | null) {
+  return dateValue ? new Date(`${dateValue}T00:00:00.000+08:00`).getTime() : Number.POSITIVE_INFINITY;
 }
 
 function buildStaffSetupView(user: User): StaffSetupView {
