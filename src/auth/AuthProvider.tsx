@@ -22,6 +22,7 @@ type UserRow = {
   id: string;
   name: string | null;
   role: Role | null;
+  location_consent_given_at: string | null;
 };
 
 type StaffProfileRow = {
@@ -32,6 +33,7 @@ type StaffProfileRow = {
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<MockUser | null>(null);
   const [loading, setLoading] = useState(true);
+  const [consentError, setConsentError] = useState<string | null>(null);
   const activeRef = useRef(false);
 
   useEffect(() => {
@@ -112,7 +114,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUserId: () => {
         // Real auth does not support role switching; the mock provider owns that demo behavior.
       },
-      giveLocationConsent: () => {
+      consentError,
+      giveLocationConsent: async () => {
+        if (!supabase) {
+          const error = 'Unable to save your location consent. Please try again before recording attendance.';
+          setConsentError(error);
+          return failure<null>(error);
+        }
+
+        setConsentError(null);
+        const { error } = await supabase.rpc('record_location_consent');
+
+        if (error) {
+          const message = 'Unable to save your location consent. Please try again before recording attendance.';
+          setConsentError(message);
+          return failure<null>(message);
+        }
+
         setUser((currentUser) => {
           if (!currentUser) {
             return currentUser;
@@ -123,9 +141,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             locationConsentGivenAt: new Date().toISOString()
           };
         });
+
+        return success<null>(null);
       }
     };
-  }, [loading, user]);
+  }, [consentError, loading, user]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 
@@ -150,7 +170,7 @@ async function fetchAuthenticatedUserProfile(
 
   const { data: userRow, error: userError } = await supabase
     .from('users')
-    .select('id,name,role')
+    .select('id,name,role,location_consent_given_at')
     .eq('id', authUser.id)
     .maybeSingle<UserRow>();
 
@@ -179,7 +199,7 @@ async function fetchAuthenticatedUserProfile(
     attendanceModel: normalizeAttendanceModel(staffProfileRow?.default_attendance_model),
     expectedLocation: '',
     shift: staffProfileRow?.shift_label ?? 'Assigned shift',
-    locationConsentGivenAt: null
+    locationConsentGivenAt: userRow.location_consent_given_at
   });
 }
 

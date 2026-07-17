@@ -33,10 +33,14 @@ const actionLabels: Record<AttendanceEventType, string> = {
 };
 
 export function StationaryScreen() {
-  const { user: authUser } = useAuth();
+  const { user: authUser, consentError } = useAuth();
   const user = authUser!;
   const locations = useMockLocations();
-  const { data: attendanceRules } = useAttendanceRules();
+  const {
+    data: attendanceRules,
+    isError: hasRulesError,
+    refetch: refetchAttendanceRules
+  } = useAttendanceRules();
   const [pendingCount, setPendingCount] = useState(0);
   const [pendingLocationWarning, setPendingLocationWarning] = useState<{
     action: AttendanceEventType;
@@ -84,12 +88,15 @@ export function StationaryScreen() {
 
   const isClockedIn = events.some((event) => event.type === 'time_in') && !events.some((event) => event.type === 'time_out');
   const isOnLunch = events.some((event) => event.type === 'lunch_out') && !events.some((event) => event.type === 'lunch_in');
-  const lunchDeductionMinutes = getAttendanceRuleValue(attendanceRules, 'lunch_deduction_minutes');
-  const lunchDeductionLabel = formatDurationMinutes(lunchDeductionMinutes);
-  const workedLabel = getWorkedLabel(events, lunchDeductionMinutes);
+  const hasAvailableRules = Boolean(attendanceRules) && !hasRulesError;
+  const lunchDeductionMinutes = attendanceRules
+    ? getAttendanceRuleValue(attendanceRules, 'lunch_deduction_minutes')
+    : null;
+  const lunchDeductionLabel = lunchDeductionMinutes === null ? 'Unavailable' : formatDurationMinutes(lunchDeductionMinutes);
+  const workedLabel = lunchDeductionMinutes === null ? 'Unavailable' : getWorkedLabel(events, lunchDeductionMinutes);
 
   async function handleAttendanceAction(action: AttendanceEventType) {
-    if (action !== nextAction) {
+    if (!hasAvailableRules || action !== nextAction) {
       return;
     }
 
@@ -113,6 +120,10 @@ export function StationaryScreen() {
     geoCheck: GeoCheckResult,
     warningAcknowledged: boolean
   ) {
+    if (!hasAvailableRules || action !== nextAction) {
+      return;
+    }
+
     const pendingEvent = await queueAttendanceEvent(action, getQueueOptionsFromGeoCheck(geoCheck, warningAcknowledged));
     const localTime = formatLocalTime(pendingEvent.capturedAtLocal);
     const validationStatus =
@@ -165,6 +176,35 @@ export function StationaryScreen() {
       </header>
       <PlatformNotice />
 
+      {!user.locationConsentGivenAt && consentError ? (
+        <article className="status-panel" role="alert">
+          <div>
+            <span className="eyebrow">Consent not saved</span>
+            <strong>Location consent is still required</strong>
+            <p>{consentError}</p>
+          </div>
+        </article>
+      ) : null}
+
+      {!hasAvailableRules ? (
+        <article className="status-panel" role={hasRulesError ? 'alert' : 'status'}>
+          <div>
+            <span className="eyebrow">Attendance rules</span>
+            <strong>{hasRulesError ? 'Attendance actions are unavailable' : 'Loading attendance rules'}</strong>
+            <p>
+              {hasRulesError
+                ? 'We could not verify the current attendance rules. Try again before recording attendance.'
+                : 'Attendance actions will be available after the current rules are verified.'}
+            </p>
+          </div>
+          {hasRulesError ? (
+            <button className="text-button" onClick={() => void refetchAttendanceRules()}>
+              Retry
+            </button>
+          ) : null}
+        </article>
+      ) : null}
+
       <article className="hero-card">
         <span className="eyebrow">Live</span>
         <strong className="clock-display">{getNowLabel()}<span>{isOnLunch ? ' break' : ' local'}</span></strong>
@@ -174,7 +214,7 @@ export function StationaryScreen() {
         </div>
       </article>
 
-      {user.locationConsentGivenAt ? (
+      {user.locationConsentGivenAt && hasAvailableRules ? (
         <>
           {pendingLocationWarning ? (
             <LocationWarning

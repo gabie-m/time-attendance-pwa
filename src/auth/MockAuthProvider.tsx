@@ -34,10 +34,12 @@ export function MockAuthProvider({ children }: { children: ReactNode }) {
         setUserIdState(nextUserId);
         setSignedOut(false);
       },
-      giveLocationConsent: () => {
+      consentError: null,
+      giveLocationConsent: async () => {
         const nextIds = Array.from(new Set([...consentedUserIds, user.id]));
         window.localStorage.setItem('mock-consented-user-ids', JSON.stringify(nextIds));
         setConsentedUserIds(nextIds);
+        return success<null>(null);
       },
       loading: false,
       signIn: async () => {
