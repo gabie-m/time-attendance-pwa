@@ -204,6 +204,8 @@ export function StationaryScreen() {
         </div>
       </article>
 
+      {!user.locationConsentGivenAt ? <ConsentGate /> : null}
+
       {user.locationConsentGivenAt && hasAvailableRules ? (
         <>
           {pendingLocationWarning ? (
@@ -256,9 +258,7 @@ export function StationaryScreen() {
             ))}
           </div>
         </>
-      ) : (
-        <ConsentGate />
-      )}
+      ) : null}
 
       <div className="metric-grid">
         <MetricCard label="Regular" value={workedLabel} detail={`After ${lunchDeductionLabel} lunch deduction`} tone="indigo" />

@@ -214,13 +214,17 @@ async function fetchAuthenticatedUserProfile(
     return failure(staffProfileError.message);
   }
 
+  if (!staffProfileRow) {
+    return failure('Your account setup is incomplete. Contact an administrator.');
+  }
+
   return success({
     id: userRow.id,
     name: userRow.name ?? authUser.email ?? 'User',
     role: normalizeRole(userRow.role),
-    attendanceModel: normalizeAttendanceModel(staffProfileRow?.default_attendance_model),
+    attendanceModel: normalizeAttendanceModel(staffProfileRow.default_attendance_model),
     expectedLocation: '',
-    shift: staffProfileRow?.shift_label ?? 'Assigned shift',
+    shift: staffProfileRow.shift_label ?? 'Assigned shift',
     locationConsentGivenAt: userRow.location_consent_given_at
   });
 }
