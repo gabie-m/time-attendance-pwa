@@ -33,7 +33,7 @@ const actionLabels: Record<AttendanceEventType, string> = {
 };
 
 export function StationaryScreen() {
-  const { user: authUser, consentError } = useAuth();
+  const { user: authUser } = useAuth();
   const user = authUser!;
   const locations = useMockLocations();
   const {
@@ -175,16 +175,6 @@ export function StationaryScreen() {
         <Pill tone={isClockedIn ? 'success' : 'neutral'}>{getStatusLabel(events)}</Pill>
       </header>
       <PlatformNotice />
-
-      {!user.locationConsentGivenAt && consentError ? (
-        <article className="status-panel" role="alert">
-          <div>
-            <span className="eyebrow">Consent not saved</span>
-            <strong>Location consent is still required</strong>
-            <p>{consentError}</p>
-          </div>
-        </article>
-      ) : null}
 
       {!hasAvailableRules ? (
         <article className="status-panel" role={hasRulesError ? 'alert' : 'status'}>
