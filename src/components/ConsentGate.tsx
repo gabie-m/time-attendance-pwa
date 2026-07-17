@@ -1,8 +1,26 @@
+import { useRef, useState } from 'react';
 import { useAuth } from '../auth/useAuth';
 import { Icon } from './Icon';
 
 export function ConsentGate() {
   const { giveLocationConsent } = useAuth();
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const isSubmittingRef = useRef(false);
+
+  async function handleConsent() {
+    if (isSubmittingRef.current) {
+      return;
+    }
+
+    isSubmittingRef.current = true;
+    setIsSubmitting(true);
+    try {
+      await giveLocationConsent();
+    } finally {
+      isSubmittingRef.current = false;
+      setIsSubmitting(false);
+    }
+  }
 
   return (
     <article className="consent-panel">
@@ -17,8 +35,8 @@ export function ConsentGate() {
           approximately every 1.5 hours while you are timed in.
         </p>
       </div>
-      <button className="action-button full" onClick={giveLocationConsent}>
-        I understand and agree
+      <button className="action-button full" disabled={isSubmitting} onClick={() => void handleConsent()}>
+        {isSubmitting ? 'Saving consent...' : 'I understand and agree'}
       </button>
     </article>
   );

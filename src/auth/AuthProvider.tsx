@@ -2,7 +2,7 @@
  * Logic-driven props: children.
  * Display-only props: none; this provider owns authentication state only.
  */
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { User as SupabaseUser } from '@supabase/supabase-js';
 import { AuthContext } from './AuthContext';
@@ -22,6 +22,7 @@ type UserRow = {
   id: string;
   name: string | null;
   role: Role | null;
+  active: boolean;
   location_consent_given_at: string | null;
 };
 
@@ -35,6 +36,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [consentError, setConsentError] = useState<string | null>(null);
   const activeRef = useRef(false);
+
+  const clearFailedProfileSession = useCallback(async () => {
+    setUser(null);
+    await signOutFromSupabase();
+  }, []);
+
+  const loadUserProfile = useCallback(async (authUser: SupabaseUser) => {
+    const profileResult = await fetchAuthenticatedUserProfile(authUser);
+
+    if (!profileResult.success) {
+      await clearFailedProfileSession();
+    }
+
+    if (!activeRef.current) {
+      return;
+    }
+
+    setUser(profileResult.success ? profileResult.data : null);
+    setLoading(false);
+  }, [clearFailedProfileSession]);
 
   useEffect(() => {
     activeRef.current = true;
@@ -76,7 +97,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         subscriptionResult.data.unsubscribe();
       }
     };
-  }, []);
+  }, [loadUserProfile]);
 
   const value = useMemo(() => {
     return {
@@ -98,8 +119,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         if (profileResult.success) {
           setUser(profileResult.data);
+          return profileResult;
         }
 
+        await clearFailedProfileSession();
         return profileResult;
       },
       signOut: async () => {
@@ -123,10 +146,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
 
         setConsentError(null);
-        const { error } = await supabase.rpc('record_location_consent');
+        const { data, error } = await supabase.rpc('record_location_consent');
 
         if (error) {
           const message = 'Unable to save your location consent. Please try again before recording attendance.';
+          setConsentError(message);
+          return failure<null>(message);
+        }
+
+        if (typeof data !== 'string') {
+          const message = 'Unable to confirm your location consent. Please try again before recording attendance.';
           setConsentError(message);
           return failure<null>(message);
         }
@@ -138,27 +167,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
           return {
             ...currentUser,
-            locationConsentGivenAt: new Date().toISOString()
+            locationConsentGivenAt: data
           };
         });
 
         return success<null>(null);
       }
     };
-  }, [consentError, loading, user]);
+  }, [clearFailedProfileSession, consentError, loading, user]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
-
-  async function loadUserProfile(authUser: SupabaseUser) {
-    const profileResult = await fetchAuthenticatedUserProfile(authUser);
-
-    if (!activeRef.current) {
-      return;
-    }
-
-    setUser(profileResult.success ? profileResult.data : null);
-    setLoading(false);
-  }
 }
 
 async function fetchAuthenticatedUserProfile(
@@ -170,7 +188,7 @@ async function fetchAuthenticatedUserProfile(
 
   const { data: userRow, error: userError } = await supabase
     .from('users')
-    .select('id,name,role,location_consent_given_at')
+    .select('id,name,role,active,location_consent_given_at')
     .eq('id', authUser.id)
     .maybeSingle<UserRow>();
 
@@ -179,7 +197,11 @@ async function fetchAuthenticatedUserProfile(
   }
 
   if (!userRow) {
-    return failure('Authenticated user profile was not found.');
+    return failure('Your account is not available. Contact an administrator.');
+  }
+
+  if (!userRow.active) {
+    return failure('This account is inactive. Contact an administrator.');
   }
 
   const { data: staffProfileRow, error: staffProfileError } = await supabase
