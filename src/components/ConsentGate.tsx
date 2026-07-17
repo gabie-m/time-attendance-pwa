@@ -3,7 +3,7 @@ import { useAuth } from '../auth/useAuth';
 import { Icon } from './Icon';
 
 export function ConsentGate() {
-  const { giveLocationConsent } = useAuth();
+  const { consentError, giveLocationConsent } = useAuth();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const isSubmittingRef = useRef(false);
 
@@ -35,6 +35,7 @@ export function ConsentGate() {
           approximately every 1.5 hours while you are timed in.
         </p>
       </div>
+      {consentError ? <p role="alert">{consentError}</p> : null}
       <button className="action-button full" disabled={isSubmitting} onClick={() => void handleConsent()}>
         {isSubmitting ? 'Saving consent...' : 'I understand and agree'}
       </button>
