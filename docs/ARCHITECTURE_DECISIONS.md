@@ -1,7 +1,7 @@
 # Architecture Decisions
 
 **Project:** Time and Attendance PWA  
-**Last Updated:** 2026-06-29  
+**Last Updated:** 2026-07-17
 **Maintained by:** Development agents and project owner
 
 ---
@@ -398,8 +398,8 @@ users/{user_id}/{work_date}/{session_id}/{client_event_id}.jpg
 
 **Implementation Notes:**
 
-- Current mock state uses `locationConsentGivenAt`.
-- Production schema currently documents `users.location_consent_given_at`.
+- Mock mode uses `locationConsentGivenAt` as a local fallback.
+- Real auth records consent through the controlled `record_location_consent()` RPC, which returns the database timestamp stored in `users.location_consent_given_at`.
 - A future `user_consents` table may be considered if consent history/versioning is required.
 
 **Future Impact:** Consent storage should be revisited during real auth/profile completion.
@@ -472,6 +472,24 @@ users/{user_id}/{work_date}/{session_id}/{client_event_id}.jpg
 - Offline sync should retry safely when a previous submission already succeeded.
 
 **Future Impact:** API responses should handle duplicate client event IDs as idempotent conflict cases rather than creating duplicate records.
+
+---
+
+## ADR-023: Attendance sessions and events require a controlled recorder
+
+**Status:** Accepted
+
+**Decision:** Authenticated clients cannot directly insert or update `attendance_sessions`. A future controlled database function or API endpoint must validate and create the session and immutable attendance event as one authorized operation.
+
+**Rationale:** Direct session writes could bypass session state, work-date, staff-model, consent, location, and immutable-event validation. The attendance boundary is integrity-sensitive and requires one server-side owner.
+
+**Implementation Notes:**
+
+- The schema currently permits session reads but revokes direct authenticated session mutations.
+- The recorder must require an active, consented user and enforce the approved stationary and roving session rules.
+- It must create append-only `attendance_events` and apply configured validation/flag workflow snapshots.
+
+**Future Impact:** This is the primary deliverable of the next `attendance_events` / `attendance_flags` migration and attendance-integrity implementation milestone.
 
 ---
 

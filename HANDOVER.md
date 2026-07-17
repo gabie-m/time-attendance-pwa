@@ -2,13 +2,13 @@
 
 ## 1. Project Overview
 
-This project is a production-minded MVP for a Time & Attendance Monitoring System built as a mobile-first Progressive Web App. The current frontend stack is React 19, TypeScript, Vite, React Router, TanStack Query, Dexie for local IndexedDB scaffolding, Supabase Auth/client integration, and vite-plugin-pwa. The app remains mock-first for local development through `VITE_USE_MOCK_AUTH=true`, while real Supabase authentication and database-driven attendance-rule reads are now wired behind environment configuration. The initial Supabase migration on `feature/supabase-schema` covers the foundation through `attendance_sessions`, including schedule-change approval and audit workflows. It passed a clean local `supabase db reset --local --no-seed`, is pushed to origin, and awaits merge to `main`.
+This project is a production-minded MVP for a Time & Attendance Monitoring System built as a mobile-first Progressive Web App. The current frontend stack is React 19, TypeScript, Vite, React Router, TanStack Query, Dexie for local IndexedDB scaffolding, Supabase Auth/client integration, and vite-plugin-pwa. The app remains mock-first for local development through `VITE_USE_MOCK_AUTH=true`, while real Supabase authentication and database-driven attendance-rule reads are wired behind environment configuration. The merged Supabase foundation covers the schema through `attendance_sessions`, schedule-change approval, audit workflows, durable location consent, and auth/rules guardrails. All local migrations passed `supabase db reset --local --no-seed`; no hosted Supabase project has been provisioned or changed.
 
 ## 2. Approved Architecture Summary
 
 Frontend: React + TypeScript + Vite PWA with React Router. Mock services currently use localStorage and static files under `src/mocks/`; Dexie is present for IndexedDB offline queue scaffolding and must be used for real offline sync before backend integration.
 
-Backend: Supabase/Postgres is the selected backend foundation. Supabase Auth client integration is merged, and the initial raw SQL migration is in progress on `feature/supabase-schema`. Route guards in the frontend are UX only; real security must be enforced server-side through RLS, API authorization, and role checks. Architecture decisions are tracked in `docs/ARCHITECTURE_DECISIONS.md`.
+Backend: Supabase/Postgres is the selected backend foundation. Supabase Auth client integration and the schema foundation are merged. Route guards in the frontend are UX only; real security is enforced through RLS, controlled database functions, API authorization, and role checks. Architecture decisions are tracked in `docs/ARCHITECTURE_DECISIONS.md`.
 
 Database plan: Postgres tables for users, staff profiles, locations, assignments, sessions, attendance events, flags, manual edit requests, manual adjustments, refresh tokens, attendance rules, audit logs, and exports. Attendance events are immutable. Corrections create adjustment records.
 
@@ -23,8 +23,8 @@ Development phases:
 - Phase 1B, admin setup/location management: substantially complete in mock form.
 - Phase 1C, manual edit request flow: substantially complete in mock form.
 - Phase 1D, reports, attendance detail, and flag review workflows: substantially complete as static/mock UI; visual cleanup remains on `ui/visual-cleanup`.
-- Phase 2, backend/schema/auth foundation: in progress. Shared Supabase/mock auth and database-driven attendance rules are merged; the locally validated schema foundation awaits merge from `feature/supabase-schema`.
-- Phase 3, attendance API and validation engine: partially started through the attendance-rules service; event validation and persistence APIs are not started.
+- Phase 2, backend/schema/auth foundation: complete in the repository. The initial migration and hardening migrations are merged and locally validated; hosted Supabase provisioning and deployment are deliberately deferred.
+- Phase 3, attendance API and validation engine: not started. The attendance-rules service is available, but the controlled attendance event/session recorder, event validation, and persistence APIs are not yet built.
 - Phase 4, offline sync implementation: only IndexedDB queue scaffold exists; full sync not started.
 - Phase 5+, notifications, exports, payroll-final reporting, security hardening, background jobs: deferred.
 
@@ -262,7 +262,7 @@ type CorrectionPayload = {
 
 ## 5. Current Build Phase
 
-Current phase: Phase 2 foundation work is in progress alongside final Phase 1D UI cleanup.
+Current phase: Phase 2 foundation work is merged and locally validated; the project is ready to begin the next attendance events and flags schema/API milestone alongside final Phase 1D UI cleanup.
 
 Completed and merged to `main`:
 - Admin Reports static mock with tabs for Attendance Summary, Late & Undertime, Absences, Overtime, Flagged Records, and Manual Edit Requests.
@@ -280,10 +280,11 @@ Completed and merged to `main`:
 - Manager assignment service validation for manager role and overlapping effective-date assignments.
 - Database-driven attendance-rules service with approved mock fallbacks, five-minute caching, and TanStack Query integration.
 - Stationary worked-time display/calculation reads the lunch deduction from the attendance-rules service.
+- Supabase schema foundation through `attendance_sessions`, including locations, assignments, schedules, manager delegation, audit logs, and schedule-change requests.
+- Schema and auth hardening: active-account authorization, durable location consent, schedule-request validation, protected session writes, inactive/incomplete-profile sign-out, and real-mode attendance-rule fail-closed behavior.
 - `docs/DEFERRED_ITEMS.md` tracker for deferred work, known gaps, and open decisions.
 
 In progress outside `main`:
-- `feature/supabase-schema`: locally validated raw SQL foundation through `attendance_sessions`, including locations, assignments, effective-dated schedules, manager delegation, audit logs, and schedule-change requests; approved and pending merge.
 - `ui/visual-cleanup`: Reports, Admin Flag Review, and Manager Flag Review visual cleanup commits; pending review/merge.
 
 Current development instructions:
@@ -297,8 +298,8 @@ Current development instructions:
 - Review pages should show only role-relevant actions and workflow responsibilities.
 
 Remaining in current phase:
-- Merge `feature/supabase-schema`; do not deploy it to a hosted database until a development project is explicitly created and approved.
-- Start the next managed schema migration block for immutable `attendance_events` and `attendance_flags` after the foundation branch merges.
+- Do not deploy the merged migrations to a hosted database until a development project is explicitly created and approved.
+- Start the next managed schema migration block for immutable `attendance_events` and `attendance_flags`.
 - Review and merge `ui/visual-cleanup`.
 - Add GPS coordinate hover/tap popover with Google Maps fallback link.
 - Possibly add shared reusable flag review detail components to reduce duplication between Admin and Manager screens.
@@ -307,12 +308,13 @@ Remaining in current phase:
 ## 6. Open Decisions & Known Gaps
 
 - No attendance persistence/validation API exists yet.
-- Real Supabase Auth is wired but still depends on deployment credentials and the schema/profile tables being available.
-- The initial migration is pushed to `origin/feature/supabase-schema` and passed a clean local reset; it has not merged or been deployed to hosted Supabase.
+- Real Supabase Auth is wired but still depends on hosted credentials and provisioned schema/profile data for real-mode testing.
+- The schema foundation and hardening migrations are merged and passed local reset; they have not been deployed to hosted Supabase.
 - Mock auth remains a local-development fallback and is not a production security boundary.
-- `locationConsentGivenAt` exists in mock auth state for UI consent gate, while database-shaped `users.location_consent_given_at` is only documented for backend.
+- Real auth records consent through the `record_location_consent()` RPC in `users.location_consent_given_at`; mock mode retains its local fallback.
 - Shared auth still uses `MockUser`; replace it with a production `AuthUser` once the final database shape is merged.
 - Real auth currently leaves `expectedLocation` empty and carries a mock-style `users` array; clean these up when location assignments are wired.
+- Attendance sessions are intentionally not directly writable by authenticated clients. The next controlled attendance recorder must create sessions and immutable events together.
 - Full offline sync is not implemented; only Dexie queue scaffolding exists.
 - Background sync on iOS is unsupported; UX must continue to be explicit.
 - Google Places address search is scaffolded but requires `VITE_GOOGLE_MAPS_API_KEY`.
@@ -423,4 +425,4 @@ Remaining in current phase:
 
 ## 8. Resume Instructions
 
-Resume from current `main` after merging the pending `feature/supabase-schema` and reviewing `ui/visual-cleanup`. Ari manages the next-stage schema agent for immutable `attendance_events` and `attendance_flags`; do not start application event persistence until that migration block is approved. Keep mock mode fully functional without Supabase credentials. Do not move workflow configuration back into review pages; it belongs in Admin settings. Preserve role separation: Manager screens show manager responsibility only, Admin screens show admin responsibility only. Continue running `npm run lint` and `npm run build` after changes.
+Resume from current `main` after reviewing `ui/visual-cleanup`. Ari manages the next-stage schema agent for immutable `attendance_events` and `attendance_flags`; do not start application event persistence until that migration block is approved. Keep mock mode fully functional without Supabase credentials. Do not move workflow configuration back into review pages; it belongs in Admin settings. Preserve role separation: Manager screens show manager responsibility only, Admin screens show admin responsibility only. Continue running `npm run lint` and `npm run build` after changes.
