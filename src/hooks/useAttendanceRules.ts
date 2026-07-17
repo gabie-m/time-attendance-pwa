@@ -7,6 +7,8 @@ import {
 export const attendanceRulesQueryKey = ['attendance-rules'] as const;
 
 export function useAttendanceRules() {
+  const isMockMode = import.meta.env.VITE_USE_MOCK_AUTH === 'true';
+
   return useQuery({
     queryKey: attendanceRulesQueryKey,
     queryFn: async () => {
@@ -18,7 +20,7 @@ export function useAttendanceRules() {
 
       return result.data;
     },
-    initialData: defaultAttendanceRules,
+    initialData: isMockMode ? defaultAttendanceRules : undefined,
     staleTime: 5 * 60 * 1000
   });
 }

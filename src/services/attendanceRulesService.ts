@@ -55,7 +55,12 @@ export async function getAttendanceRules(): Promise<ServiceResult<AttendanceRule
     return failure(error.message);
   }
 
-  const rules = normalizeAttendanceRules(data ?? []);
+  const rulesResult = normalizeAttendanceRules(data ?? []);
+  if (!rulesResult.success) {
+    return rulesResult;
+  }
+
+  const rules = rulesResult.data;
   cachedRules = {
     rules,
     expiresAt: Date.now() + attendanceRulesCacheTtlMs
@@ -74,26 +79,36 @@ export async function getRule(ruleKey: AttendanceRuleKey): Promise<ServiceResult
   return success(getAttendanceRuleValue(rulesResult.data, ruleKey));
 }
 
-export function getAttendanceRuleValue(rules: Partial<AttendanceRules>, ruleKey: AttendanceRuleKey) {
-  return rules[ruleKey] ?? defaultAttendanceRules[ruleKey];
+export function getAttendanceRuleValue(rules: AttendanceRules, ruleKey: AttendanceRuleKey) {
+  return rules[ruleKey];
 }
 
-function normalizeAttendanceRules(rows: AttendanceRuleRow[]) {
-  return rows.reduce<AttendanceRules>((rules, row) => {
-    if (isAttendanceRuleKey(row.rule_key)) {
-      return {
-        ...rules,
-        [row.rule_key]: normalizeRuleValue(row.rule_value, row.rule_key)
-      };
+function normalizeAttendanceRules(rows: AttendanceRuleRow[]): ServiceResult<AttendanceRules> {
+  const rules: Partial<AttendanceRules> = {};
+
+  for (const row of rows) {
+    if (!isAttendanceRuleKey(row.rule_key)) {
+      continue;
     }
 
-    return rules;
-  }, defaultAttendanceRules);
+    const value = normalizeRuleValue(row.rule_value);
+    if (value === null) {
+      return failure('Attendance rules are unavailable.');
+    }
+
+    rules[row.rule_key] = value;
+  }
+
+  if (Object.keys(defaultAttendanceRules).some((ruleKey) => rules[ruleKey as AttendanceRuleKey] === undefined)) {
+    return failure('Attendance rules are unavailable.');
+  }
+
+  return success(rules as AttendanceRules);
 }
 
-function normalizeRuleValue(ruleValue: AttendanceRuleRow['rule_value'], ruleKey: AttendanceRuleKey) {
+function normalizeRuleValue(ruleValue: AttendanceRuleRow['rule_value']) {
   const numericValue = Number(ruleValue);
-  return Number.isFinite(numericValue) ? numericValue : defaultAttendanceRules[ruleKey];
+  return Number.isFinite(numericValue) ? numericValue : null;
 }
 
 function isAttendanceRuleKey(ruleKey: string): ruleKey is AttendanceRuleKey {
