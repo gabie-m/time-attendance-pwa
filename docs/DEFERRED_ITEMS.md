@@ -1,6 +1,6 @@
 # Deferred Items, Known Gaps & Future Decisions
 **Project:** Time and Attendance PWA
-**Last Updated:** 2026-07-16
+**Last Updated:** 2026-07-17
 **Maintained by:** Claude (Development Consultant)
 
 ---
@@ -39,7 +39,7 @@ Update this document whenever a deferred item is built, a gap is resolved, or a 
 |---|------|-------|----------|
 | D-09 | Export functionality | CSV, XLSX, PDF exports. `export_jobs` is planned for a later migration block. UI placeholder already built. | Phase 7 |
 | D-10 | Attendance rules UI | Admin screen for viewing and updating configurable attendance rules. Backend table exists. | Phase 6 |
-| D-11 | Staff categories management UI | Admin screen for adding and managing job categories. Schema and seed data are locally validated on `feature/supabase-schema`, pending merge. | Phase 6 (feature/staff-categories) |
+| D-11 | Staff categories management UI | Admin screen for adding and managing job categories. Schema and seed data are merged; UI remains deferred. | Phase 6 (feature/staff-categories) |
 | D-12 | Device management UI | Admin screen showing registered devices per user, primary device flag, suspicious device flags. | Post-MVP |
 | D-13 | Admin manual edit oversight | Admin view of all correction requests and disputes across all managers. | Phase 5 (after manager workflows) |
 
@@ -78,18 +78,16 @@ Update this document whenever a deferred item is built, a gap is resolved, or a 
 | # | Gap | Where | Notes |
 |---|-----|-------|-------|
 | G-06 | localStorage vs Dexie | `offlineQueue.ts` | Currently scaffolded with local IndexedDB. Must migrate to Dexie before Phase 4 offline sync is built. |
-| G-07 | `ConsentGate.tsx` | `src/components/` | Uses `locationConsentGivenAt` from MockUser. Needs revisiting when real consent model is built. |
 | G-08 | `googlePlacesService.ts` | `src/services/` | Optional scaffold only. Runs if `VITE_GOOGLE_MAPS_API_KEY` is configured. No hard dependency. Needs proper scoping before backend phase. |
 | G-09 | `MockUser` type still used as auth user type | `src/auth/AuthContext.ts` | Should be replaced with a proper `AuthUser` type once the database schema is complete and all fields are confirmed. |
 | G-10 | `expectedLocation` hardcoded as empty string | `src/auth/AuthProvider.tsx` | Placeholder in `fetchAuthenticatedUserProfile`. Needs to pull from `user_location_assignments` once that table is wired to the frontend. |
 | G-11 | `users` array in real auth provider | `src/auth/AuthProvider.tsx` | Leftover mock pattern. Real auth provider only needs the single authenticated `user`. Clean up after auth is stable. |
-| G-12 | `giveLocationConsent` in real auth provider | `src/auth/AuthProvider.tsx` | Present but will be revisited when proper consent model is built. No immediate impact. |
 | G-13 | `useMockAuth` still exists | `src/auth/` | Not deleted, just unused after `useAuth` migration. Clean up after `feature/supabase-auth` is stable. |
 
 ### Architecture
 | # | Gap | Where | Notes |
 |---|-----|-------|-------|
-| G-15 | No open session constraint enforced in frontend | Attendance capture screens | Backend will reject duplicate stationary sessions but frontend should also disable the action with a clear message. |
+| G-15 | Controlled attendance recorder not built | Attendance capture/API boundary | Direct client session writes are intentionally revoked. The next attendance event/session recorder must enforce session state, work-date, location, consent, and immutable-event rules together. |
 
 ---
 
@@ -99,7 +97,9 @@ Update this document whenever a deferred item is built, a gap is resolved, or a 
 |---|------|------------|
 | G-14 | Attendance engine reads hardcoded values | Resolved by `feature/attendance-rules-engine`, merged to `main` in PR #4. Active rules are date-scoped, cached for five minutes, and have approved mock-mode fallbacks. The existing stationary lunch deduction calculation now reads from the rules service. |
 | G-16 | Attendance-rule default documentation mismatch | Resolved on 2026-06-15. Seeded defaults are late grace `0`, clock discrepancy `5`, photo time mismatch `5`, lunch deduction `60`, and overtime threshold `480` minutes. All are admin-configurable in the MVP. |
-| G-03 | Manager SELECT policy on users and staff_profiles tables | Resolved in the locally validated `feature/supabase-schema` foundation through direct-team and active delegated-team RLS policies; pending merge to `main`. |
+| G-03 | Manager SELECT policy on users and staff_profiles tables | Resolved by PR #6 through direct-team and active delegated-team RLS policies. |
+| G-07 | Real location consent persistence | Resolved by PR #7. Real auth stores consent through `record_location_consent()`; mock mode retains a local fallback. |
+| G-12 | Real-provider consent behavior | Resolved by PR #7. Consent save failures are visible in the shared gate and duplicate submissions are guarded. |
 
 ---
 
@@ -139,21 +139,21 @@ Update this document whenever a deferred item is built, a gap is resolved, or a 
 
 | Table | Status |
 |-------|--------|
-| `attendance_rules` | 🔄 Locally validated on `feature/supabase-schema`, pending merge |
-| `users` | 🔄 Locally validated on `feature/supabase-schema`, pending merge |
-| `staff_categories` | 🔄 Locally validated on `feature/supabase-schema`, pending merge |
-| `staff_profiles` | 🔄 Locally validated on `feature/supabase-schema`, pending merge |
-| `manager_staff_assignments` | 🔄 Locally validated on `feature/supabase-schema`, pending merge |
-| `locations` | 🔄 Locally validated on `feature/supabase-schema`, pending merge |
-| `user_location_assignments` | 🔄 Locally validated on `feature/supabase-schema`, pending merge |
-| `schedules` | 🔄 Locally validated on `feature/supabase-schema`, pending merge |
-| `schedule_days` | 🔄 Locally validated on `feature/supabase-schema`, pending merge |
-| `attendance_sessions` | 🔄 Locally validated on `feature/supabase-schema`, pending merge |
+| `attendance_rules` | ✅ Merged to `main`; locally validated |
+| `users` | ✅ Merged to `main`; locally validated |
+| `staff_categories` | ✅ Merged to `main`; locally validated |
+| `staff_profiles` | ✅ Merged to `main`; locally validated |
+| `manager_staff_assignments` | ✅ Merged to `main`; locally validated |
+| `locations` | ✅ Merged to `main`; locally validated |
+| `user_location_assignments` | ✅ Merged to `main`; locally validated |
+| `schedules` | ✅ Merged to `main`; locally validated |
+| `schedule_days` | ✅ Merged to `main`; locally validated |
+| `attendance_sessions` | ✅ Merged to `main`; locally validated |
 | `attendance_events` | ⏳ Not started |
 | `attendance_flags` | ⏳ Not started |
 | `manual_edit_requests` | ⏳ Not started |
 | `manual_adjustments` | ⏳ Not started |
-| `audit_logs` | 🔄 Locally validated on `feature/supabase-schema`, pending merge |
+| `audit_logs` | ✅ Merged to `main`; locally validated |
 | `devices` | ⏳ Not started |
 | `export_jobs` | ⏳ Not started |
 | `roving_overrides` | ⏳ Not started |
@@ -181,3 +181,5 @@ Update this document whenever a deferred item is built, a gap is resolved, or a 
 | N-15 | Supabase Auth owns all credential management — no password_hash in users table |
 | N-16 | Real Supabase provider is lazy loaded via AppAuthProvider — never initialized in mock mode |
 | N-17 | Auth provider does not handle redirects — routing logic belongs in ProtectedRoute only |
+| N-18 | Real location consent is stored by the `record_location_consent()` RPC; the client must use the returned database timestamp |
+| N-19 | Authenticated clients cannot directly create or update attendance sessions; the controlled attendance recorder will own session and immutable event creation |
