@@ -619,6 +619,264 @@ BEGIN
 END;
 $$;
 
+COMMENT ON FUNCTION preflight_flag_review_workflow_map(date, date, jsonb) IS
+  'Admin preflight for a proposed complete workflow map. Existing gaps covered by the proposal are not reported as surviving gaps.';
+COMMENT ON FUNCTION set_flag_review_workflow_map(date, date, jsonb) IS
+  'Applies only complete, future-effective workflow maps and preserves surrounding versions without creating gaps.';
+COMMENT ON FUNCTION acknowledge_flag_review_workflow_gap(date, date, flag_type[], text) IS
+  'Explicit admin confirmation for a finite legacy, import, or recovery gap. The UI must collect a non-empty reason and show the exact dates and flag types before invoking this RPC.';
+
+CREATE OR REPLACE FUNCTION set_attendance_rule(
+  p_rule_key text,
+  p_effective_from date,
+  p_effective_to date,
+  p_rule_value jsonb
+)
+RETURNS uuid
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, public
+AS $$
+DECLARE
+  expected_value_type public.attendance_rule_value_type;
+  rule_description text;
+  left_rule public.attendance_rules%ROWTYPE;
+  right_rule public.attendance_rules%ROWTYPE;
+  replacement_rule_id uuid;
+  before_rows jsonb;
+  integer_value numeric;
+  text_value text;
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM public.users
+    WHERE id = auth.uid()
+      AND role = 'admin'
+      AND active = true
+  ) THEN
+    RAISE EXCEPTION 'Only active admins can configure attendance rules.';
+  END IF;
+
+  IF p_rule_key IS NULL OR length(btrim(p_rule_key)) = 0 THEN
+    RAISE EXCEPTION 'An approved attendance rule key is required.';
+  END IF;
+
+  IF p_rule_key = 'flag_review_workflow_mode_by_flag_type' THEN
+    RAISE EXCEPTION 'Flag workflow configuration must use set_flag_review_workflow_map().';
+  END IF;
+
+  expected_value_type := CASE p_rule_key
+    WHEN 'late_grace_minutes' THEN 'integer'::public.attendance_rule_value_type
+    WHEN 'clock_discrepancy_threshold_minutes' THEN 'integer'::public.attendance_rule_value_type
+    WHEN 'photo_time_mismatch_threshold_minutes' THEN 'integer'::public.attendance_rule_value_type
+    WHEN 'lunch_deduction_minutes' THEN 'integer'::public.attendance_rule_value_type
+    WHEN 'overtime_threshold_minutes' THEN 'integer'::public.attendance_rule_value_type
+    WHEN 'early_lunch_return_threshold_minutes' THEN 'integer'::public.attendance_rule_value_type
+    WHEN 'short_attendance_gap_confirmation_minutes' THEN 'integer'::public.attendance_rule_value_type
+    WHEN 'max_edit_request_days_back' THEN 'integer'::public.attendance_rule_value_type
+    WHEN 'gps_low_accuracy_threshold_meters' THEN 'integer'::public.attendance_rule_value_type
+    WHEN 'late_handling_mode' THEN 'text'::public.attendance_rule_value_type
+    WHEN 'travel_time_reporting_mode' THEN 'text'::public.attendance_rule_value_type
+    ELSE NULL
+  END;
+
+  IF expected_value_type IS NULL THEN
+    RAISE EXCEPTION 'Unknown or unapproved attendance rule key: %.', p_rule_key;
+  END IF;
+
+  SELECT description
+  INTO rule_description
+  FROM public.attendance_rules
+  WHERE rule_key = p_rule_key
+  ORDER BY effective_from DESC, created_at DESC, id
+  LIMIT 1;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Approved attendance rule key % has no seeded definition.', p_rule_key;
+  END IF;
+
+  IF p_effective_from IS NULL
+    OR NOT isfinite(p_effective_from)
+    OR p_effective_from <= CURRENT_DATE
+    OR (p_effective_to IS NOT NULL AND NOT isfinite(p_effective_to))
+    OR (p_effective_to IS NOT NULL AND p_effective_to < p_effective_from)
+  THEN
+    RAISE EXCEPTION 'Ordinary attendance rule changes must start after the current date and use a valid effective range.';
+  END IF;
+
+  CASE expected_value_type
+    WHEN 'integer' THEN
+      IF jsonb_typeof(p_rule_value) IS DISTINCT FROM 'number'
+        OR p_rule_value::text !~ '^-?[0-9]+$'
+      THEN
+        RAISE EXCEPTION 'Attendance rule % requires an integer JSON value.', p_rule_key;
+      END IF;
+
+      integer_value := (p_rule_value #>> '{}')::numeric;
+      IF integer_value < 0 THEN
+        RAISE EXCEPTION 'Attendance rule % cannot be negative.', p_rule_key;
+      END IF;
+
+      IF p_rule_key IN (
+        'overtime_threshold_minutes',
+        'gps_low_accuracy_threshold_meters'
+      ) AND integer_value = 0 THEN
+        RAISE EXCEPTION 'Attendance rule % must be greater than zero.', p_rule_key;
+      END IF;
+
+    WHEN 'text' THEN
+      IF jsonb_typeof(p_rule_value) IS DISTINCT FROM 'string' THEN
+        RAISE EXCEPTION 'Attendance rule % requires a text JSON value.', p_rule_key;
+      END IF;
+
+      text_value := p_rule_value #>> '{}';
+      IF p_rule_key = 'late_handling_mode'
+        AND text_value NOT IN ('flag_only', 'flag_and_deduct')
+      THEN
+        RAISE EXCEPTION 'late_handling_mode must be flag_only or flag_and_deduct.';
+      ELSIF p_rule_key = 'travel_time_reporting_mode'
+        AND text_value <> 'paid_non_productive_separate'
+      THEN
+        RAISE EXCEPTION 'travel_time_reporting_mode must be paid_non_productive_separate.';
+      END IF;
+    ELSE
+      RAISE EXCEPTION 'Attendance rule % has an unsupported value type.', p_rule_key;
+  END CASE;
+
+  PERFORM pg_catalog.pg_advisory_xact_lock(
+    pg_catalog.hashtextextended('attendance_rule_configuration:' || p_rule_key, 0)
+  );
+
+  SELECT COALESCE(jsonb_agg(to_jsonb(rules) ORDER BY rules.effective_from), '[]'::jsonb)
+  INTO before_rows
+  FROM public.attendance_rules AS rules
+  WHERE rules.rule_key = p_rule_key
+    AND daterange(
+      rules.effective_from,
+      COALESCE(rules.effective_to, 'infinity'::date),
+      '[]'
+    ) && daterange(
+      p_effective_from,
+      COALESCE(p_effective_to, 'infinity'::date),
+      '[]'
+    );
+
+  SELECT *
+  INTO left_rule
+  FROM public.attendance_rules
+  WHERE rule_key = p_rule_key
+    AND effective_from < p_effective_from
+    AND (effective_to IS NULL OR effective_to >= p_effective_from)
+  ORDER BY effective_from DESC
+  LIMIT 1
+  FOR UPDATE;
+
+  IF p_effective_to IS NOT NULL THEN
+    SELECT *
+    INTO right_rule
+    FROM public.attendance_rules
+    WHERE rule_key = p_rule_key
+      AND effective_from <= p_effective_to
+      AND (effective_to IS NULL OR effective_to > p_effective_to)
+    ORDER BY effective_from DESC
+    LIMIT 1
+    FOR UPDATE;
+  END IF;
+
+  IF left_rule.id IS NOT NULL THEN
+    UPDATE public.attendance_rules
+    SET effective_to = p_effective_from - 1,
+        updated_at = now()
+    WHERE id = left_rule.id;
+  END IF;
+
+  DELETE FROM public.attendance_rules AS rules
+  WHERE rules.rule_key = p_rule_key
+    AND daterange(
+      rules.effective_from,
+      COALESCE(rules.effective_to, 'infinity'::date),
+      '[]'
+    ) && daterange(
+      p_effective_from,
+      COALESCE(p_effective_to, 'infinity'::date),
+      '[]'
+    );
+
+  INSERT INTO public.attendance_rules (
+    rule_key,
+    rule_value,
+    value_type,
+    description,
+    effective_from,
+    effective_to,
+    created_by
+  ) VALUES (
+    p_rule_key,
+    p_rule_value,
+    expected_value_type,
+    rule_description,
+    p_effective_from,
+    p_effective_to,
+    auth.uid()
+  )
+  RETURNING id INTO replacement_rule_id;
+
+  IF p_effective_to IS NOT NULL AND right_rule.id IS NOT NULL THEN
+    INSERT INTO public.attendance_rules (
+      rule_key,
+      rule_value,
+      value_type,
+      description,
+      effective_from,
+      effective_to,
+      created_by,
+      created_at,
+      updated_at
+    ) VALUES (
+      right_rule.rule_key,
+      right_rule.rule_value,
+      right_rule.value_type,
+      right_rule.description,
+      p_effective_to + 1,
+      right_rule.effective_to,
+      right_rule.created_by,
+      right_rule.created_at,
+      now()
+    );
+  END IF;
+
+  INSERT INTO public.audit_logs (
+    actor_user_id,
+    action,
+    entity_type,
+    entity_id,
+    before_json,
+    after_json
+  ) VALUES (
+    auth.uid(),
+    'attendance_rule_configured',
+    'attendance_rule',
+    replacement_rule_id,
+    jsonb_build_object(
+      'rule_key', p_rule_key,
+      'overlapping_versions', before_rows
+    ),
+    jsonb_build_object(
+      'rule_key', p_rule_key,
+      'rule_value', p_rule_value,
+      'value_type', expected_value_type,
+      'effective_from', p_effective_from,
+      'effective_to', p_effective_to
+    )
+  );
+
+  RETURN replacement_rule_id;
+END;
+$$;
+
+COMMENT ON FUNCTION set_attendance_rule(text, date, date, jsonb) IS
+  'Active-admin RPC for approved non-workflow attendance rules. Changes are future-effective, value-validated, range-preserving, and audited.';
+
 CREATE OR REPLACE FUNCTION snapshot_attendance_flag_workflow()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -704,11 +962,17 @@ BEGIN
 END;
 $$;
 
-DO $$
+CREATE OR REPLACE FUNCTION correct_existing_flag_review_workflow_maps()
+RETURNS integer
+LANGUAGE plpgsql
+SET search_path = pg_catalog, public
+AS $$
 DECLARE
-  current_rule public.attendance_rules%ROWTYPE;
-  corrected_rule_id uuid;
-  corrected_map jsonb := '{
+  existing_rule public.attendance_rules%ROWTYPE;
+  corrected_rule public.attendance_rules%ROWTYPE;
+  corrected_map jsonb;
+  corrected_count integer := 0;
+  default_map constant jsonb := '{
     "outside_radius": "manager_preapprove_admin_final",
     "gps_low_accuracy": "manager_review_admin_observe",
     "offline_submission": "manager_view_admin_approve",
@@ -722,80 +986,88 @@ DECLARE
     "missing_photo": "manager_review_admin_observe"
   }'::jsonb;
 BEGIN
-  PERFORM public.assert_valid_flag_review_workflow_map(corrected_map);
+  FOR existing_rule IN
+    SELECT *
+    FROM public.attendance_rules
+    WHERE rule_key = 'flag_review_workflow_mode_by_flag_type'
+    ORDER BY effective_from, id
+    FOR UPDATE
+  LOOP
+    SELECT jsonb_object_agg(
+      official.enumlabel,
+      CASE
+        WHEN official.enumlabel IN (
+          'deactivated_user_record',
+          'clock_discrepancy'
+        ) THEN 'manager_view_admin_approve'
+        WHEN existing_rule.rule_value ->> official.enumlabel IN (
+          'manager_review_admin_observe',
+          'manager_preapprove_admin_final',
+          'manager_view_admin_approve'
+        ) THEN existing_rule.rule_value ->> official.enumlabel
+        ELSE default_map ->> official.enumlabel
+      END
+      ORDER BY official.enumsortorder
+    )
+    INTO corrected_map
+    FROM pg_catalog.pg_enum AS official
+    WHERE official.enumtypid = 'public.flag_type'::regtype;
 
-  SELECT *
-  INTO current_rule
-  FROM public.attendance_rules
-  WHERE rule_key = 'flag_review_workflow_mode_by_flag_type'
-    AND effective_from <= CURRENT_DATE
-    AND (effective_to IS NULL OR effective_to >= CURRENT_DATE)
-  ORDER BY effective_from DESC
-  LIMIT 1
-  FOR UPDATE;
+    PERFORM public.assert_valid_flag_review_workflow_map(corrected_map);
 
-  IF NOT FOUND THEN
-    RAISE EXCEPTION 'No current flag workflow rule exists to correct.';
-  END IF;
-
-  IF current_rule.rule_value IS DISTINCT FROM corrected_map THEN
-    IF current_rule.effective_from < CURRENT_DATE THEN
-      UPDATE public.attendance_rules
-      SET effective_to = CURRENT_DATE - 1,
-          updated_at = now()
-      WHERE id = current_rule.id;
-
-      INSERT INTO public.attendance_rules (
-        rule_key,
-        rule_value,
-        value_type,
-        description,
-        effective_from,
-        effective_to,
-        created_by
-      ) VALUES (
-        'flag_review_workflow_mode_by_flag_type',
-        corrected_map,
-        'json',
-        'Maps every official attendance flag type to an approved deterministic review workflow mode.',
-        CURRENT_DATE,
-        current_rule.effective_to,
-        NULL
-      )
-      RETURNING id INTO corrected_rule_id;
-    ELSE
-      -- Date-effective rules cannot represent two versions within one day.
-      -- Existing flags retain their original routing in snapshot columns.
+    IF existing_rule.rule_value IS DISTINCT FROM corrected_map
+      OR existing_rule.value_type IS DISTINCT FROM 'json'
+    THEN
       UPDATE public.attendance_rules
       SET rule_value = corrected_map,
+          value_type = 'json',
           description = 'Maps every official attendance flag type to an approved deterministic review workflow mode.',
           updated_at = now()
-      WHERE id = current_rule.id
-      RETURNING id INTO corrected_rule_id;
-    END IF;
+      WHERE id = existing_rule.id
+      RETURNING * INTO corrected_rule;
 
-    INSERT INTO public.audit_logs (
-      actor_user_id,
-      action,
-      entity_type,
-      entity_id,
-      before_json,
-      after_json
-    ) VALUES (
-      NULL,
-      'flag_review_workflow_mapping_corrected_by_migration',
-      'attendance_rule',
-      corrected_rule_id,
-      to_jsonb(current_rule),
-      jsonb_build_object(
-        'effective_from', CURRENT_DATE,
-        'effective_to', current_rule.effective_to,
-        'rule_value', corrected_map
-      )
-    );
+      INSERT INTO public.audit_logs (
+        actor_user_id,
+        action,
+        entity_type,
+        entity_id,
+        before_json,
+        after_json
+      ) VALUES (
+        NULL,
+        'flag_review_workflow_mapping_corrected_by_migration',
+        'attendance_rule',
+        existing_rule.id,
+        to_jsonb(existing_rule),
+        to_jsonb(corrected_rule)
+      );
+
+      corrected_count := corrected_count + 1;
+    END IF;
+  END LOOP;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM public.attendance_rules
+    WHERE rule_key = 'flag_review_workflow_mode_by_flag_type'
+  ) THEN
+    RAISE EXCEPTION 'At least one flag workflow rule version is required.';
   END IF;
+
+  FOR existing_rule IN
+    SELECT *
+    FROM public.attendance_rules
+    WHERE rule_key = 'flag_review_workflow_mode_by_flag_type'
+    ORDER BY effective_from, id
+  LOOP
+    PERFORM public.assert_valid_flag_review_workflow_map(existing_rule.rule_value);
+  END LOOP;
+
+  RETURN corrected_count;
 END;
 $$;
+
+SELECT correct_existing_flag_review_workflow_maps();
 
 DROP POLICY "Admins can insert attendance rules" ON attendance_rules;
 DROP POLICY "Admins can update attendance rules" ON attendance_rules;
@@ -827,6 +1099,8 @@ REVOKE ALL PRIVILEGES ON FUNCTION reject_attendance_flag_mutation()
 FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL PRIVILEGES ON FUNCTION reject_attendance_flag_review_mutation()
 FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL PRIVILEGES ON FUNCTION correct_existing_flag_review_workflow_maps()
+FROM PUBLIC, anon, authenticated, service_role;
 
 REVOKE ALL PRIVILEGES ON FUNCTION preflight_flag_review_workflow_map(date, date, jsonb)
 FROM PUBLIC, anon, authenticated, service_role;
@@ -841,4 +1115,9 @@ TO authenticated;
 REVOKE ALL PRIVILEGES ON FUNCTION set_flag_review_workflow_map(date, date, jsonb)
 FROM PUBLIC, anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION set_flag_review_workflow_map(date, date, jsonb)
+TO authenticated;
+
+REVOKE ALL PRIVILEGES ON FUNCTION set_attendance_rule(text, date, date, jsonb)
+FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION set_attendance_rule(text, date, date, jsonb)
 TO authenticated;
