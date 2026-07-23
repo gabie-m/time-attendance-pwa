@@ -450,6 +450,7 @@ DECLARE
   right_rule public.attendance_rules%ROWTYPE;
   replacement_rule_id uuid;
   before_rows jsonb;
+  maximum_effective_date constant date := DATE '9999-12-30';
 BEGIN
   IF NOT EXISTS (
     SELECT 1
@@ -464,10 +465,12 @@ BEGIN
   IF p_effective_from IS NULL
     OR NOT isfinite(p_effective_from)
     OR p_effective_from <= CURRENT_DATE
+    OR p_effective_from > maximum_effective_date
     OR (p_effective_to IS NOT NULL AND NOT isfinite(p_effective_to))
     OR (p_effective_to IS NOT NULL AND p_effective_to < p_effective_from)
+    OR (p_effective_to IS NOT NULL AND p_effective_to > maximum_effective_date)
   THEN
-    RAISE EXCEPTION 'Normal workflow changes must start after the current date and use a valid effective range.';
+    RAISE EXCEPTION 'Normal workflow changes must start after the current date and end on or before %, or use NULL for open-ended.', maximum_effective_date;
   END IF;
 
   PERFORM public.assert_valid_flag_review_workflow_map(p_rule_value);
@@ -644,8 +647,11 @@ DECLARE
   right_rule public.attendance_rules%ROWTYPE;
   replacement_rule_id uuid;
   before_rows jsonb;
-  integer_value numeric;
+  integer_value integer;
+  minimum_integer_value integer;
+  maximum_integer_value integer;
   text_value text;
+  maximum_effective_date constant date := DATE '9999-12-30';
 BEGIN
   IF NOT EXISTS (
     SELECT 1
@@ -698,10 +704,12 @@ BEGIN
   IF p_effective_from IS NULL
     OR NOT isfinite(p_effective_from)
     OR p_effective_from <= CURRENT_DATE
+    OR p_effective_from > maximum_effective_date
     OR (p_effective_to IS NOT NULL AND NOT isfinite(p_effective_to))
     OR (p_effective_to IS NOT NULL AND p_effective_to < p_effective_from)
+    OR (p_effective_to IS NOT NULL AND p_effective_to > maximum_effective_date)
   THEN
-    RAISE EXCEPTION 'Ordinary attendance rule changes must start after the current date and use a valid effective range.';
+    RAISE EXCEPTION 'Ordinary attendance rule changes must start after the current date and end on or before %, or use NULL for open-ended.', maximum_effective_date;
   END IF;
 
   CASE expected_value_type
@@ -712,16 +720,48 @@ BEGIN
         RAISE EXCEPTION 'Attendance rule % requires an integer JSON value.', p_rule_key;
       END IF;
 
-      integer_value := (p_rule_value #>> '{}')::numeric;
-      IF integer_value < 0 THEN
-        RAISE EXCEPTION 'Attendance rule % cannot be negative.', p_rule_key;
+      -- All approved numeric rule ranges fit within four decimal digits. This
+      -- rejects impossible inputs before casting so malformed configuration
+      -- cannot trigger numeric overflow or leak unusable values to clients.
+      IF length(p_rule_value::text) > 4 THEN
+        RAISE EXCEPTION 'Attendance rule % is outside its approved numeric range.', p_rule_key;
       END IF;
 
-      IF p_rule_key IN (
-        'overtime_threshold_minutes',
-        'gps_low_accuracy_threshold_meters'
-      ) AND integer_value = 0 THEN
-        RAISE EXCEPTION 'Attendance rule % must be greater than zero.', p_rule_key;
+      integer_value := (p_rule_value #>> '{}')::integer;
+      minimum_integer_value := CASE p_rule_key
+        WHEN 'late_grace_minutes' THEN 0
+        WHEN 'clock_discrepancy_threshold_minutes' THEN 1
+        WHEN 'photo_time_mismatch_threshold_minutes' THEN 1
+        WHEN 'lunch_deduction_minutes' THEN 0
+        WHEN 'overtime_threshold_minutes' THEN 60
+        WHEN 'early_lunch_return_threshold_minutes' THEN 1
+        WHEN 'short_attendance_gap_confirmation_minutes' THEN 1
+        WHEN 'max_edit_request_days_back' THEN 1
+        WHEN 'gps_low_accuracy_threshold_meters' THEN 10
+        ELSE NULL
+      END;
+      maximum_integer_value := CASE p_rule_key
+        WHEN 'late_grace_minutes' THEN 240
+        WHEN 'clock_discrepancy_threshold_minutes' THEN 120
+        WHEN 'photo_time_mismatch_threshold_minutes' THEN 120
+        WHEN 'lunch_deduction_minutes' THEN 240
+        WHEN 'overtime_threshold_minutes' THEN 1440
+        WHEN 'early_lunch_return_threshold_minutes' THEN 240
+        WHEN 'short_attendance_gap_confirmation_minutes' THEN 240
+        WHEN 'max_edit_request_days_back' THEN 365
+        WHEN 'gps_low_accuracy_threshold_meters' THEN 1000
+        ELSE NULL
+      END;
+
+      IF minimum_integer_value IS NULL
+        OR maximum_integer_value IS NULL
+        OR integer_value < minimum_integer_value
+        OR integer_value > maximum_integer_value
+      THEN
+        RAISE EXCEPTION 'Attendance rule % must be between % and % inclusive.',
+          p_rule_key,
+          minimum_integer_value,
+          maximum_integer_value;
       END IF;
 
     WHEN 'text' THEN
@@ -875,7 +915,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION set_attendance_rule(text, date, date, jsonb) IS
-  'Active-admin RPC for approved non-workflow attendance rules. Changes are future-effective, value-validated, range-preserving, and audited.';
+  'Active-admin RPC for approved non-workflow attendance rules. Changes are future-effective, constrained to approved per-key business ranges, range-preserving, and audited.';
 
 CREATE OR REPLACE FUNCTION snapshot_attendance_flag_workflow()
 RETURNS trigger
