@@ -2,7 +2,7 @@
 
 ## 1. Project Overview
 
-This project is a production-minded MVP for a Time & Attendance Monitoring System built as a mobile-first Progressive Web App. The current frontend stack is React 19, TypeScript, Vite, React Router, TanStack Query, Dexie for local IndexedDB scaffolding, Supabase Auth/client integration, and vite-plugin-pwa. The app remains mock-first for local development through `VITE_USE_MOCK_AUTH=true`, while real Supabase authentication and database-driven attendance-rule reads are wired behind environment configuration. The merged Supabase foundation covers the schema through `attendance_sessions`, schedule-change approval, audit workflows, durable location consent, and auth/rules guardrails. All local migrations passed `supabase db reset --local --no-seed`; no hosted Supabase project has been provisioned or changed.
+This project is a production-minded MVP for a Time & Attendance Monitoring System built as a mobile-first Progressive Web App. The current frontend stack is React 19, TypeScript, Vite, React Router, TanStack Query, Dexie for local IndexedDB scaffolding, Supabase Auth/client integration, and vite-plugin-pwa. The app remains mock-first for local development through `VITE_USE_MOCK_AUTH=true`, while real Supabase authentication and database-driven attendance-rule reads are wired behind environment configuration. The merged Supabase foundation covers the schema through immutable `attendance_events`, `attendance_flags`, flag review history, schedule-change approval, audit workflows, durable location consent, and auth/rules guardrails. All local migrations passed `supabase db reset --local --no-seed`; no hosted Supabase project has been provisioned or changed.
 
 ## 2. Approved Architecture Summary
 
@@ -23,8 +23,8 @@ Development phases:
 - Phase 1B, admin setup/location management: substantially complete in mock form.
 - Phase 1C, manual edit request flow: substantially complete in mock form.
 - Phase 1D, reports, attendance detail, and flag review workflows: substantially complete as static/mock UI; visual cleanup remains on `ui/visual-cleanup`.
-- Phase 2, backend/schema/auth foundation: complete in the repository. The initial migration and hardening migrations are merged and locally validated; hosted Supabase provisioning and deployment are deliberately deferred.
-- Phase 3, attendance API and validation engine: not started. The attendance-rules service is available, but the controlled attendance event/session recorder, event validation, and persistence APIs are not yet built.
+- Phase 2, backend/schema/auth foundation: complete in the repository through immutable attendance events, flags, review history, and hardened rule/workflow configuration. The initial migration and hardening migrations are merged and locally validated; hosted Supabase provisioning and deployment are deliberately deferred.
+- Phase 3, attendance API and validation engine: not started. The attendance-rules service is available, but the controlled attendance recorder, event validation, flag generation, and persistence APIs are not yet built.
 - Phase 4, offline sync implementation: only IndexedDB queue scaffold exists; full sync not started.
 - Phase 5+, notifications, exports, payroll-final reporting, security hardening, background jobs: deferred.
 
@@ -184,16 +184,25 @@ Development phases:
 - `late_handling_mode`: `flag_only`. Options: `flag_only`, `flag_and_deduct`.
 - `early_lunch_return_threshold_minutes`: 30.
 - `short_attendance_gap_confirmation_minutes`: 30.
+- `gps_low_accuracy_threshold_meters`: 100.
 - `travel_time_reporting_mode`: `paid_non_productive_separate`.
 - `max_edit_request_days_back`: 30.
 - `flag_review_workflow_mode_by_flag_type`: per flag type enum map.
+- Integer attendance rules are constrained by approved per-key business ranges in the database.
+- Admin rule/workflow changes must start after the current date and use effective dates no later than `9999-12-30`; `NULL` is the only open-ended representation.
 
-Current mock default flag workflow settings:
+Current seeded/default flag workflow settings:
 - `outside_radius`: `manager_preapprove_admin_final`.
 - `gps_low_accuracy`: `manager_review_admin_observe`.
 - `offline_submission`: `manager_view_admin_approve`.
 - `location_conflict`: `manager_preapprove_admin_final`.
 - `missing_punch`: `manager_review_admin_observe`.
+- `deactivated_user_record`: `manager_view_admin_approve`.
+- `late_sync`: `manager_review_admin_observe`.
+- `clock_discrepancy`: `manager_view_admin_approve`.
+- `early_lunch_return`: `manager_review_admin_observe`.
+- `photo_time_mismatch`: `manager_review_admin_observe`.
+- `missing_photo`: `manager_review_admin_observe`.
 
 ## 4. Schema Additions & Constraints Confirmed
 
@@ -220,7 +229,7 @@ Current mock default flag workflow settings:
 - `users.location_consent_given_at`: nullable timestamp.
 - `attendance_events.gps_expires_at`: not-null timestamp set to capture time plus 12 months.
 - `attendance_events.client_event_id`: idempotency key from client.
-- `attendance_flags.reviewed_by`: references users and must be admin for suspicious offline/admin-only flags.
+- `attendance_flags.reviewed_by`: references users and must match the configured reviewer workflow stage.
 - `export_jobs.scope`: supports `operations` and `payroll_final`.
 
 ### Constraints And Indexes
@@ -237,7 +246,7 @@ Current mock default flag workflow settings:
 - Staff/attendance model: `stationary`, `roving`.
 - Location assignment type: `primary`, `allowed`, `temporary`.
 - Attendance event validation status: `normal`, `warning`, `flagged`, `needs_review`, `overtime_candidate`.
-- Attendance flag types include: `outside_radius`, `gps_low_accuracy`, `offline_submission`, `location_conflict`, `missing_punch`, `deactivated_user_record`, `late_sync`, `clock_discrepancy`, `early_lunch_return`.
+- Attendance flag types include: `outside_radius`, `gps_low_accuracy`, `offline_submission`, `location_conflict`, `missing_punch`, `deactivated_user_record`, `late_sync`, `clock_discrepancy`, `early_lunch_return`, `photo_time_mismatch`, `missing_photo`.
 - Flag severity: `warning`, `high`.
 - Flag status: `open`, `reviewed`, `resolved`.
 - Manual request types: `missed_punch`, `incorrect_time`, `missed_visit`, `sync_issue`, `other`.
@@ -262,7 +271,7 @@ type CorrectionPayload = {
 
 ## 5. Current Build Phase
 
-Current phase: Phase 2 foundation work is merged and locally validated; the project is ready to begin the next attendance events and flags schema/API milestone alongside final Phase 1D UI cleanup.
+Current phase: Phase 2 foundation work is merged and locally validated through attendance events and flags. The project is ready to begin the controlled attendance recorder/API milestone alongside final Phase 1D UI cleanup.
 
 Completed and merged to `main`:
 - Admin Reports static mock with tabs for Attendance Summary, Late & Undertime, Absences, Overtime, Flagged Records, and Manual Edit Requests.
@@ -282,6 +291,8 @@ Completed and merged to `main`:
 - Stationary worked-time display/calculation reads the lunch deduction from the attendance-rules service.
 - Supabase schema foundation through `attendance_sessions`, including locations, assignments, schedules, manager delegation, audit logs, and schedule-change requests.
 - Schema and auth hardening: active-account authorization, durable location consent, schedule-request validation, protected session writes, inactive/incomplete-profile sign-out, and real-mode attendance-rule fail-closed behavior.
+- Immutable attendance events, attendance flags, review history, controlled workflow fallback acknowledgements, and hardened admin rule/workflow configuration.
+- Database-level attendance rule semantic bounds and effective-date caps for rule/workflow configuration.
 - `docs/DEFERRED_ITEMS.md` tracker for deferred work, known gaps, and open decisions.
 
 In progress outside `main`:
@@ -299,7 +310,7 @@ Current development instructions:
 
 Remaining in current phase:
 - Do not deploy the merged migrations to a hosted database until a development project is explicitly created and approved.
-- Start the next managed schema migration block for immutable `attendance_events` and `attendance_flags`.
+- Start the controlled attendance recorder/API that owns session creation, immutable event insertion, validation, flag generation, and workflow snapshots.
 - Review and merge `ui/visual-cleanup`.
 - Add GPS coordinate hover/tap popover with Google Maps fallback link.
 - Possibly add shared reusable flag review detail components to reduce duplication between Admin and Manager screens.
@@ -328,7 +339,7 @@ Remaining in current phase:
 - Data retention job for GPS expiry is not implemented.
 - pg-boss/background job infrastructure is deferred.
 - Need decide whether admins should have staff profile/default attendance model in production even if they do not perform attendance.
-- Attendance events, flags, correction records, devices, exports, and roving overrides remain in later migration blocks; no attendance persistence API exists yet.
+- Manual correction records, devices, exports, and roving overrides remain in later migration blocks; no attendance persistence API exists yet.
 
 ## 7. Files Created or Modified
 
@@ -425,4 +436,4 @@ Remaining in current phase:
 
 ## 8. Resume Instructions
 
-Resume from current `main` after reviewing `ui/visual-cleanup`. Ari manages the next-stage schema agent for immutable `attendance_events` and `attendance_flags`; do not start application event persistence until that migration block is approved. Keep mock mode fully functional without Supabase credentials. Do not move workflow configuration back into review pages; it belongs in Admin settings. Preserve role separation: Manager screens show manager responsibility only, Admin screens show admin responsibility only. Continue running `npm run lint` and `npm run build` after changes.
+Resume from current `main` after reviewing `ui/visual-cleanup`. The immutable attendance events and flags schema is merged; the next application milestone is the controlled attendance recorder/API. Keep mock mode fully functional without Supabase credentials. Do not move workflow configuration back into review pages; it belongs in Admin settings. Preserve role separation: Manager screens show manager responsibility only, Admin screens show admin responsibility only. Continue running `npm run lint` and `npm run build` after changes.

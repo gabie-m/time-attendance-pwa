@@ -52,9 +52,28 @@ These rules are admin-configurable through the `attendance_rules` table in the M
 | `late_handling_mode` | `flag_only` | enum | Options: `flag_only`, `flag_and_deduct`. Deduction applies only in payroll export logic, not event recording. |
 | `early_lunch_return_threshold_minutes` | `30` | integer | If a user submits Lunch In with at least this many minutes remaining from the scheduled lunch window, the excess becomes an overtime candidate. |
 | `short_attendance_gap_confirmation_minutes` | `30` | integer | Sequential attendance actions closer than this threshold require user confirmation. Applies to stationary punches and individual roving visit duration only; it does not apply between separate roving visits. |
+| `gps_low_accuracy_threshold_meters` | `100` | integer | GPS accuracy above this threshold creates a low-accuracy flag. |
 | `travel_time_reporting_mode` | `paid_non_productive_separate` | enum | Travel gaps are paid but non-productive and always reported separately. |
 | `max_edit_request_days_back` | `30` | integer | Maximum days back a user can submit a correction request. |
 | `flag_review_workflow_mode_by_flag_type` | per flag type | enum map | Each flag type is assigned one workflow mode: `manager_review_admin_observe`, `manager_preapprove_admin_final`, or `manager_view_admin_approve`. |
+
+### Configurable Rule Bounds
+
+Integer attendance rules must stay within these approved inclusive ranges. The database enforces these ranges at the admin RPC boundary.
+
+| Rule Key | Minimum | Maximum |
+|---|---:|---:|
+| `late_grace_minutes` | `0` | `240` |
+| `clock_discrepancy_threshold_minutes` | `1` | `120` |
+| `photo_time_mismatch_threshold_minutes` | `1` | `120` |
+| `lunch_deduction_minutes` | `0` | `240` |
+| `overtime_threshold_minutes` | `60` | `1440` |
+| `early_lunch_return_threshold_minutes` | `1` | `240` |
+| `short_attendance_gap_confirmation_minutes` | `1` | `240` |
+| `max_edit_request_days_back` | `1` | `365` |
+| `gps_low_accuracy_threshold_meters` | `10` | `1000` |
+
+Admin rule and workflow configuration changes are future-effective only. Finite `effective_from` and `effective_to` values must be no later than `9999-12-30`; `NULL` is the only open-ended effective-date representation.
 
 ## Flag Review Workflow Rules
 
@@ -64,8 +83,12 @@ These rules are admin-configurable through the `attendance_rules` table in the M
 - `manager_review_admin_observe`: manager reviews and approves the flag; admin sees the flag and manager approval for audit review only.
 - `manager_preapprove_admin_final`: manager reviews first and pre-approves or recommends rejection; admin performs final approval or rejection.
 - `manager_view_admin_approve`: manager can see the flag for awareness but cannot approve; admin is the only approver.
+- `manager_review_admin_observe` allows exactly one manager terminal decision.
+- `manager_preapprove_admin_final` requires one manager recommendation before exactly one admin final decision.
+- `manager_view_admin_approve` allows no manager action and exactly one admin terminal decision.
 - Flag review remarks are required when a manager or admin performs an approval, rejection, resolution, or escalation action.
 - Original attendance records remain immutable regardless of flag review outcome.
+- If a legacy/import/recovery gap lacks configured workflow coverage, the fallback workflow is `manager_view_admin_approve` only after explicit admin acknowledgement and reason capture for the affected gap.
 
 ## Platform And PWA Rules
 
@@ -115,8 +138,9 @@ These rules are admin-configurable through the `attendance_rules` table in the M
 - `attendance_events.gps_expires_at`: not-null timestamp set to capture time plus 12 months.
 - `attendance_events`: unique constraint on `(user_id, client_event_id)`.
 - `attendance_sessions`: partial unique index on `(user_id, work_date)` where `session_type = 'stationary_day'`.
+- `attendance_flags`: linked to attendance events/sessions with append-only review history.
 - `manual_adjustments.adjusted_payload`: validate with the typed shape `{ field: string, old_value: unknown, new_value: unknown }[]`.
-- `attendance_flags.flag_type`: include `deactivated_user_record`, `late_sync`, `clock_discrepancy`, and `early_lunch_return`.
+- `attendance_flags.flag_type`: include `outside_radius`, `gps_low_accuracy`, `offline_submission`, `location_conflict`, `missing_punch`, `deactivated_user_record`, `late_sync`, `clock_discrepancy`, `early_lunch_return`, `photo_time_mismatch`, and `missing_photo`.
 
 ## Export Rules
 

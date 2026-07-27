@@ -1,7 +1,7 @@
 # Deferred Items, Known Gaps & Future Decisions
 **Project:** Time and Attendance PWA
-**Last Updated:** 2026-07-17
-**Maintained by:** Claude (Development Consultant)
+**Last Updated:** 2026-07-24
+**Maintained by:** Ari (Main Development Agent)
 
 ---
 
@@ -88,6 +88,7 @@ Update this document whenever a deferred item is built, a gap is resolved, or a 
 | # | Gap | Where | Notes |
 |---|-----|-------|-------|
 | G-15 | Controlled attendance recorder not built | Attendance capture/API boundary | Direct client session writes are intentionally revoked. The next attendance event/session recorder must enforce session state, work-date, location, consent, and immutable-event rules together. |
+| G-17 | Repeatable SQL rule-bound regression tests | Supabase migrations/tests | Attendance-rule boundary checks were validated locally with rollback SQL during PR #11, but the harness is not yet committed as repeatable regression tests. |
 
 ---
 
@@ -100,6 +101,7 @@ Update this document whenever a deferred item is built, a gap is resolved, or a 
 | G-03 | Manager SELECT policy on users and staff_profiles tables | Resolved by PR #6 through direct-team and active delegated-team RLS policies. |
 | G-07 | Real location consent persistence | Resolved by PR #7. Real auth stores consent through `record_location_consent()`; mock mode retains a local fallback. |
 | G-12 | Real-provider consent behavior | Resolved by PR #7. Consent save failures are visible in the shared gate and duplicate submissions are guarded. |
+| G-18 | Attendance events and flags schema gap | Resolved by PR #11. Immutable `attendance_events`, `attendance_flags`, flag review history, hardened workflow configuration, fallback acknowledgements, and rule semantic bounds are merged to `main` and locally validated. |
 
 ---
 
@@ -128,7 +130,8 @@ Update this document whenever a deferred item is built, a gap is resolved, or a 
 |--------|--------|------------|
 | `feature/supabase-auth` | ✅ Merged to main | — |
 | `feature/attendance-rules-engine` | ✅ Merged to main | `feature/supabase-auth` merged ✅ |
-| `feature/attendance-integrity` | ⏳ Not started | Schema foundation and the next `attendance_events` / `attendance_flags` migration block merged |
+| `feature/attendance-integrity` | ⏳ Not started | Controlled attendance recorder/API branch merged |
+| `feature/controlled-attendance-recorder` | ⏳ Not started | Events/flags schema merged ✅ |
 | `feature/session-integrity` | ⏳ Not started | `feature/supabase-auth` merged ✅ |
 | `feature/staff-categories` | ⏳ Not started | `feature/supabase-auth` merged ✅ |
 | `feature/device-registration` | ⏳ Not started | `feature/supabase-auth` merged ✅ |
@@ -149,8 +152,8 @@ Update this document whenever a deferred item is built, a gap is resolved, or a 
 | `schedules` | ✅ Merged to `main`; locally validated |
 | `schedule_days` | ✅ Merged to `main`; locally validated |
 | `attendance_sessions` | ✅ Merged to `main`; locally validated |
-| `attendance_events` | ⏳ Not started |
-| `attendance_flags` | ⏳ Not started |
+| `attendance_events` | ✅ Merged to `main`; locally validated |
+| `attendance_flags` | ✅ Merged to `main`; locally validated |
 | `manual_edit_requests` | ⏳ Not started |
 | `manual_adjustments` | ⏳ Not started |
 | `audit_logs` | ✅ Merged to `main`; locally validated |
@@ -183,3 +186,5 @@ Update this document whenever a deferred item is built, a gap is resolved, or a 
 | N-17 | Auth provider does not handle redirects — routing logic belongs in ProtectedRoute only |
 | N-18 | Real location consent is stored by the `record_location_consent()` RPC; the client must use the returned database timestamp |
 | N-19 | Authenticated clients cannot directly create or update attendance sessions; the controlled attendance recorder will own session and immutable event creation |
+| N-20 | Attendance rule and flag workflow configuration changes are future-effective, admin-controlled, audited, and capped at `9999-12-30`; `NULL` is the only open-ended representation |
+| N-21 | Integer attendance rules have approved per-key min/max ranges enforced at the database RPC boundary |

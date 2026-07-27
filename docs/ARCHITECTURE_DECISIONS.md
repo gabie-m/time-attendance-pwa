@@ -144,10 +144,17 @@ When a decision changes, update this document and cross-check the business rules
 | `photo_time_mismatch_threshold_minutes` | `5` |
 | `lunch_deduction_minutes` | `60` |
 | `overtime_threshold_minutes` | `480` |
+| `early_lunch_return_threshold_minutes` | `30` |
+| `short_attendance_gap_confirmation_minutes` | `30` |
+| `max_edit_request_days_back` | `30` |
+| `gps_low_accuracy_threshold_meters` | `100` |
 
 **Implementation Notes:**
 
 - Active rules are date-scoped using `effective_from` and `effective_to`.
+- Ordinary admin rule changes are future-effective only and are capped at `9999-12-30` to avoid date arithmetic overflow.
+- `NULL` is the only open-ended effective-date representation.
+- Integer rules have approved per-key min/max ranges enforced at the database RPC boundary.
 - The frontend attendance-rules service caches rules for 5 minutes.
 - Mock mode uses approved fallback values without calling Supabase.
 
@@ -489,7 +496,29 @@ users/{user_id}/{work_date}/{session_id}/{client_event_id}.jpg
 - The recorder must require an active, consented user and enforce the approved stationary and roving session rules.
 - It must create append-only `attendance_events` and apply configured validation/flag workflow snapshots.
 
-**Future Impact:** This is the primary deliverable of the next `attendance_events` / `attendance_flags` migration and attendance-integrity implementation milestone.
+**Future Impact:** This is the primary deliverable of the next controlled attendance recorder/API milestone.
+
+---
+
+## ADR-024: Attendance events and flags are immutable and review-driven
+
+**Status:** Accepted
+
+**Decision:** Attendance capture writes append-only `attendance_events` and creates `attendance_flags` for conditions that need verification. Flags do not block capture; review outcomes determine reporting validity while preserving the original event and flag history.
+
+**Rationale:** Time, photo, GPS, device, offline, and location evidence can be imperfect. The system should accept the attendance record, keep the evidence, route uncertainty to the correct reviewer, and retain the review trail for audit and coaching patterns.
+
+**Implementation Notes:**
+
+- `attendance_events` cannot be updated or deleted by authenticated app users.
+- `client_event_id` is unique per user for offline idempotency.
+- `attendance_flags` are append-only with review history.
+- Official MVP flag types are `outside_radius`, `gps_low_accuracy`, `offline_submission`, `location_conflict`, `missing_punch`, `deactivated_user_record`, `late_sync`, `clock_discrepancy`, `early_lunch_return`, `photo_time_mismatch`, and `missing_photo`.
+- `schedule_mismatch` is not an official flag type; it remains a derived reporting metric.
+- Flag workflow configuration is date-effective, admin-controlled, audited, and configured per flag type.
+- If a legacy/import/recovery gap reaches workflow resolution, the fallback workflow is `manager_view_admin_approve` only after explicit admin acknowledgement and reason capture.
+
+**Future Impact:** The controlled attendance recorder/API must be the only write path that creates sessions, events, flags, and workflow snapshots together.
 
 ---
 
