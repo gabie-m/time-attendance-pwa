@@ -5,12 +5,15 @@ import { Icon } from '../components/Icon';
 import { LocationWarning } from '../components/LocationWarning';
 import { ManualEditRequestPanel } from '../components/ManualEditRequestPanel';
 import { MetricCard } from '../components/MetricCard';
+import { MissingPhotoWarning } from '../components/MissingPhotoWarning';
 import { PlatformNotice } from '../components/PlatformNotice';
 import { Pill } from '../components/Pill';
 import { TimeGapWarning } from '../components/TimeGapWarning';
 import type { Location, Visit } from '../domain/types';
-import { offlineDb, queueAttendanceEvent } from '../offline/offlineQueue';
-import { useMockLocations } from '../services/mockLocationService';
+import { useAttendanceLocations } from '../hooks/useAttendanceLocations';
+import { useAttendanceRules } from '../hooks/useAttendanceRules';
+import { getAttendanceRuleValue } from '../services/attendanceRulesService';
+import { recordAttendanceEvent } from '../services/attendanceRecorderService';
 import {
   checkCurrentPositionAgainstLocation,
   getGpsUnavailableResult,
@@ -18,20 +21,35 @@ import {
 } from '../utils/geo';
 
 const purposes = ['Inventory check', 'Promo audit', 'Staff coaching', 'Stock replenishment', 'Client meeting'];
-const shortAttendanceGapConfirmationMinutes = 30;
+type RecorderConfirmations = {
+  gpsWarningAcknowledged: boolean;
+  missingPhotoAcknowledged: boolean;
+  shortGapAcknowledged: boolean;
+};
 
 export function RovingScreen() {
   const { user: authUser } = useAuth();
   const user = authUser!;
-  const locations = useMockLocations();
-  const [pendingCount, setPendingCount] = useState(0);
+  const {
+    data: locations,
+    isError: hasLocationsError,
+    refetch: refetchAttendanceLocations
+  } = useAttendanceLocations(user.id);
+  const {
+    data: attendanceRules,
+    isError: hasRulesError,
+    refetch: refetchAttendanceRules
+  } = useAttendanceRules();
+  const [isRecording, setIsRecording] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
-  const [selectedLocationName, setSelectedLocationName] = useState(locations[0]?.name ?? '');
+  const [selectedLocationName, setSelectedLocationName] = useState('');
   const [selectedPurpose, setSelectedPurpose] = useState(purposes[0]);
   const [pendingLocationWarning, setPendingLocationWarning] = useState<{
     type: 'start' | 'end';
     result: GeoCheckResult;
     visitId?: string;
+    confirmations: RecorderConfirmations;
   } | null>(null);
   const [pendingTimeGapWarning, setPendingTimeGapWarning] = useState<{
     type: 'start' | 'end';
@@ -39,55 +57,83 @@ export function RovingScreen() {
     gapMinutes: number;
     visitId?: string;
   } | null>(null);
+  const [pendingPhotoWarning, setPendingPhotoWarning] = useState<{
+    type: 'start' | 'end';
+    result: GeoCheckResult;
+    confirmations: RecorderConfirmations;
+    visitId?: string;
+  } | null>(null);
   const [visitsByUser, setVisitsByUser] = useState<Record<string, Visit[]>>({});
   const visits = useMemo(() => visitsByUser[user.id] ?? readStoredVisits(user.id), [user.id, visitsByUser]);
   const activeVisit = visits.find((visit) => visit.status === 'active');
   const doneVisits = visits.filter((visit) => visit.status === 'done');
   const totalVisitMinutes = doneVisits.reduce((sum, visit) => sum + getVisitMinutes(visit), 0);
+  const shortGapConfirmationMinutes = attendanceRules
+    ? getAttendanceRuleValue(attendanceRules, 'short_attendance_gap_confirmation_minutes')
+    : null;
+  const hasAvailableRules = Boolean(attendanceRules) && !hasRulesError;
+  const hasAvailableLocations = Boolean(locations?.length) && !hasLocationsError;
+  const hasNoPermittedLocations = locations?.length === 0 && !hasLocationsError;
+  const hasAvailableCaptureSetup = hasAvailableRules && hasAvailableLocations;
 
   useEffect(() => {
     window.localStorage.setItem(getStorageKey(user.id), JSON.stringify(visits));
   }, [user.id, visits]);
 
-  useEffect(() => {
-    let active = true;
-
-    async function refreshPendingCount() {
-      const count = await offlineDb.pendingEvents.count();
-      if (active) {
-        setPendingCount(count);
-      }
-    }
-
-    void refreshPendingCount();
-    const timer = window.setInterval(refreshPendingCount, 1000);
-
-    return () => {
-      active = false;
-      window.clearInterval(timer);
-    };
-  }, []);
-
   async function startVisit() {
-    if (activeVisit) {
+    if (activeVisit || !hasAvailableCaptureSetup || !locations) {
       return;
     }
 
     const selectedLocation = getLocationByName(getSelectedLocationName(selectedLocationName, locations), locations);
     const geoCheck = await getGeoCheck(selectedLocation);
     if (geoCheck.status !== 'normal') {
-      setPendingLocationWarning({ type: 'start', result: geoCheck });
+      setPendingLocationWarning({ type: 'start', result: geoCheck, confirmations: createEmptyConfirmations() });
       return;
     }
 
-    await completeStartVisit(geoCheck, false);
+    await continueStartVisit(geoCheck, createEmptyConfirmations());
   }
 
-  async function completeStartVisit(geoCheck: GeoCheckResult, warningAcknowledged: boolean) {
-    const pendingEvent = await queueAttendanceEvent('visit_in', getQueueOptionsFromGeoCheck(geoCheck, warningAcknowledged));
-    const localTime = formatLocalTime(pendingEvent.capturedAtLocal);
+  async function continueStartVisit(geoCheck: GeoCheckResult, confirmations: RecorderConfirmations) {
+    if (isRecording) {
+      return;
+    }
+
+    setPendingLocationWarning(null);
+    setPendingTimeGapWarning(null);
+
+    if (!confirmations.missingPhotoAcknowledged) {
+      setPendingPhotoWarning({ type: 'start', result: geoCheck, confirmations });
+      return;
+    }
+
+    setIsRecording(true);
+    setMessage(null);
+    const capturedAtLocal = new Date().toISOString();
+    const result = await recordAttendanceEvent({
+      clientEventId: crypto.randomUUID(),
+      eventType: 'visit_in',
+      capturedAtLocal,
+      locationId: geoCheck.location.id,
+      purpose: selectedPurpose,
+      latitude: geoCheck.status === 'gps_unavailable' ? undefined : geoCheck.latitude,
+      longitude: geoCheck.status === 'gps_unavailable' ? undefined : geoCheck.longitude,
+      gpsAccuracyMeters: geoCheck.status === 'gps_unavailable' ? undefined : geoCheck.accuracyMeters,
+      ...confirmations
+    });
+    setIsRecording(false);
+
+    if (!result.success) {
+      setMessage(result.error);
+      return;
+    }
+
+    const localTime = formatLocalTime(capturedAtLocal);
     const nextVisit: Visit = {
-      id: pendingEvent.clientEventId,
+      id: result.data.sessionId,
+      sessionId: result.data.sessionId,
+      capturedAtLocal,
       status: 'active',
       locationName: geoCheck.location.name,
       purpose: selectedPurpose,
@@ -95,7 +141,7 @@ export function RovingScreen() {
       duration: 'In progress',
       travelFromPrevious: getTravelGapLabel(visits),
       distanceMeters: geoCheck.status === 'gps_unavailable' ? undefined : geoCheck.distanceMeters,
-      validationStatus: geoCheck.status === 'normal' ? 'warning' : 'flagged'
+      validationStatus: result.data.validationStatus
     };
 
     setVisitsByUser((currentVisitsByUser) => {
@@ -105,39 +151,88 @@ export function RovingScreen() {
         [user.id]: [nextVisit, ...currentVisits]
       };
     });
-    setPendingCount((currentCount) => currentCount + 1);
     setShowForm(false);
     setPendingLocationWarning(null);
     setPendingTimeGapWarning(null);
+    setPendingPhotoWarning(null);
   }
 
   async function endVisit(visitId: string) {
     const visit = visits.find((item) => item.id === visitId);
-    const timeGapWarning = getEndVisitTimeGapWarning(visit);
+    if (!hasAvailableCaptureSetup || shortGapConfirmationMinutes === null) {
+      return;
+    }
+
+    const timeGapWarning = getEndVisitTimeGapWarning(visit, shortGapConfirmationMinutes);
     if (timeGapWarning) {
       setPendingTimeGapWarning({ type: 'end', visitId, ...timeGapWarning });
       return;
     }
 
-    await endVisitAfterTimeConfirmation(visitId);
+    await endVisitAfterTimeConfirmation(visitId, createEmptyConfirmations());
   }
 
-  async function endVisitAfterTimeConfirmation(visitId: string) {
+  async function endVisitAfterTimeConfirmation(visitId: string, confirmations: RecorderConfirmations) {
     setPendingTimeGapWarning(null);
     const visit = visits.find((item) => item.id === visitId);
-    const visitLocation = getLocationByName(visit?.locationName ?? getSelectedLocationName(selectedLocationName, locations), locations);
+    const visitLocation = getLocationByName(
+      visit?.locationName ?? getSelectedLocationName(selectedLocationName, locations ?? []),
+      locations ?? []
+    );
     const geoCheck = await getGeoCheck(visitLocation);
     if (geoCheck.status !== 'normal') {
-      setPendingLocationWarning({ type: 'end', result: geoCheck, visitId });
+      setPendingLocationWarning({ type: 'end', result: geoCheck, visitId, confirmations });
       return;
     }
 
-    await completeEndVisit(visitId, geoCheck, false);
+    await continueEndVisit(visitId, geoCheck, confirmations);
   }
 
-  async function completeEndVisit(visitId: string, geoCheck: GeoCheckResult, warningAcknowledged: boolean) {
-    const pendingEvent = await queueAttendanceEvent('visit_out', getQueueOptionsFromGeoCheck(geoCheck, warningAcknowledged));
-    const localTime = formatLocalTime(pendingEvent.capturedAtLocal);
+  async function continueEndVisit(
+    visitId: string,
+    geoCheck: GeoCheckResult,
+    confirmations: RecorderConfirmations
+  ) {
+    if (isRecording) {
+      return;
+    }
+
+    setPendingLocationWarning(null);
+    setPendingTimeGapWarning(null);
+
+    if (!confirmations.missingPhotoAcknowledged) {
+      setPendingPhotoWarning({ type: 'end', result: geoCheck, visitId, confirmations });
+      return;
+    }
+
+    const visit = visits.find((item) => item.id === visitId);
+    if (!visit) {
+      setMessage('The selected attendance session is unavailable.');
+      return;
+    }
+
+    setIsRecording(true);
+    setMessage(null);
+    const capturedAtLocal = new Date().toISOString();
+    const result = await recordAttendanceEvent({
+      clientEventId: crypto.randomUUID(),
+      eventType: 'visit_out',
+      capturedAtLocal,
+      locationId: geoCheck.location.id,
+      sessionId: visit.sessionId,
+      latitude: geoCheck.status === 'gps_unavailable' ? undefined : geoCheck.latitude,
+      longitude: geoCheck.status === 'gps_unavailable' ? undefined : geoCheck.longitude,
+      gpsAccuracyMeters: geoCheck.status === 'gps_unavailable' ? undefined : geoCheck.accuracyMeters,
+      ...confirmations
+    });
+    setIsRecording(false);
+
+    if (!result.success) {
+      setMessage(result.error);
+      return;
+    }
+
+    const localTime = formatLocalTime(capturedAtLocal);
 
     setVisitsByUser((currentVisitsByUser) => {
       const currentVisits = currentVisitsByUser[user.id] ?? readStoredVisits(user.id);
@@ -152,19 +247,23 @@ export function RovingScreen() {
             ...visit,
             status: 'done',
             timeOut: localTime,
-            duration: getDurationLabel(visit.timeIn, localTime),
+            timeOutCapturedAtLocal: capturedAtLocal,
+            duration: getDurationLabel(visit.capturedAtLocal, capturedAtLocal),
             distanceMeters: geoCheck.status === 'gps_unavailable' ? visit.distanceMeters : geoCheck.distanceMeters,
-            validationStatus: geoCheck.status === 'normal' && visit.validationStatus !== 'flagged' ? 'warning' : 'flagged'
+            validationStatus: result.data.validationStatus
           };
         })
       };
     });
-    setPendingCount((currentCount) => currentCount + 1);
     setPendingLocationWarning(null);
     setPendingTimeGapWarning(null);
+    setPendingPhotoWarning(null);
   }
 
   function resetDemoDay() {
+    if (!isMockAuthMode()) {
+      return;
+    }
     setVisitsByUser((currentVisitsByUser) => ({
       ...currentVisitsByUser,
       [user.id]: []
@@ -184,14 +283,60 @@ export function RovingScreen() {
       </header>
       <PlatformNotice />
 
+      {!hasAvailableRules ? (
+        <article className="status-panel" role={hasRulesError ? 'alert' : 'status'}>
+          <div>
+            <span className="eyebrow">Attendance rules</span>
+            <strong>{hasRulesError ? 'Attendance actions are unavailable' : 'Loading attendance rules'}</strong>
+            <p>
+              {hasRulesError
+                ? 'We could not verify the current attendance rules. Try again before recording attendance.'
+                : 'Attendance actions will be available after the current rules are verified.'}
+            </p>
+          </div>
+          {hasRulesError ? (
+            <button className="text-button" onClick={() => void refetchAttendanceRules()}>
+              Retry
+            </button>
+          ) : null}
+        </article>
+      ) : null}
+
+      {hasAvailableRules && !hasAvailableLocations ? (
+        <article className="status-panel" role={hasLocationsError ? 'alert' : 'status'}>
+          <div>
+            <span className="eyebrow">Attendance locations</span>
+            <strong>
+              {hasLocationsError
+                ? 'Attendance actions are unavailable'
+                : hasNoPermittedLocations
+                  ? 'No permitted attendance location'
+                  : 'Loading permitted locations'}
+            </strong>
+            <p>
+              {hasLocationsError
+                ? 'We could not verify your permitted locations. Try again before recording attendance.'
+                : hasNoPermittedLocations
+                  ? 'Ask an administrator to assign an active attendance location before recording attendance.'
+                  : 'Attendance actions will be available after your permitted locations are verified.'}
+            </p>
+          </div>
+          {hasLocationsError ? (
+            <button className="text-button" onClick={() => void refetchAttendanceLocations()}>
+              Retry
+            </button>
+          ) : null}
+        </article>
+      ) : null}
+
       <div className="metric-grid">
         <MetricCard label="Visits" value={String(visits.length)} detail={`${doneVisits.length} done · ${activeVisit ? '1 active' : '0 active'}`} />
         <MetricCard label="On-site" value={formatMinutes(totalVisitMinutes)} detail="Travel excluded" tone="success" />
-        <MetricCard label="Pending sync" value={String(pendingCount)} detail="Sync on app open" tone="warn" />
+        <MetricCard label="Recorded" value={String(visits.length)} detail="Submitted through attendance recorder" tone="success" />
         <MetricCard label="Travel" value="Paid" detail="Non-productive, separate" tone="indigo" />
       </div>
 
-      {user.locationConsentGivenAt ? (
+      {user.locationConsentGivenAt && hasAvailableCaptureSetup && locations ? (
         <>
           {pendingLocationWarning ? (
             <LocationWarning
@@ -200,11 +345,14 @@ export function RovingScreen() {
               onCancel={() => setPendingLocationWarning(null)}
               onConfirm={() =>
                 pendingLocationWarning.type === 'start'
-                  ? void completeStartVisit(pendingLocationWarning.result, true)
-                  : void completeEndVisit(
+                  ? void continueStartVisit(
+                      pendingLocationWarning.result,
+                      { ...pendingLocationWarning.confirmations, gpsWarningAcknowledged: true }
+                    )
+                  : void continueEndVisit(
                       pendingLocationWarning.visitId ?? '',
                       pendingLocationWarning.result,
-                      true
+                      { ...pendingLocationWarning.confirmations, gpsWarningAcknowledged: true }
                     )
               }
             />
@@ -218,17 +366,39 @@ export function RovingScreen() {
               onConfirm={() =>
                 pendingTimeGapWarning.type === 'start'
                   ? undefined
-                  : void endVisitAfterTimeConfirmation(pendingTimeGapWarning.visitId ?? '')
+                  : void endVisitAfterTimeConfirmation(
+                      pendingTimeGapWarning.visitId ?? '',
+                      { ...createEmptyConfirmations(), shortGapAcknowledged: true }
+                    )
               }
             />
           ) : null}
+          {pendingPhotoWarning ? (
+            <MissingPhotoWarning
+              actionLabel={pendingPhotoWarning.type === 'start' ? 'Start Visit' : 'End Visit'}
+              onCancel={() => setPendingPhotoWarning(null)}
+              onConfirm={() =>
+                pendingPhotoWarning.type === 'start'
+                  ? void continueStartVisit(
+                      pendingPhotoWarning.result,
+                      { ...pendingPhotoWarning.confirmations, missingPhotoAcknowledged: true }
+                    )
+                  : void continueEndVisit(
+                      pendingPhotoWarning.visitId ?? '',
+                      pendingPhotoWarning.result,
+                      { ...pendingPhotoWarning.confirmations, missingPhotoAcknowledged: true }
+                    )
+              }
+            />
+          ) : null}
+          {message ? <p className="form-warning">{message}</p> : null}
           <article className="status-panel">
             <div>
               <span className="eyebrow">Roving rule</span>
               <strong>{activeVisit ? 'Visit in progress' : 'Ready for next visit'}</strong>
               <p>{activeVisit ? 'Close your current visit before starting a new one.' : 'Travel gaps are paid but reported separately.'}</p>
             </div>
-            <button className="text-button" onClick={resetDemoDay}>Reset demo</button>
+            {isMockAuthMode() ? <button className="text-button" onClick={resetDemoDay}>Reset demo</button> : null}
           </article>
 
           {showForm ? (
@@ -236,7 +406,7 @@ export function RovingScreen() {
               <label>
                 Location
                 <select
-                  value={getSelectedLocationName(selectedLocationName, locations)}
+                    value={getSelectedLocationName(selectedLocationName, locations)}
                   onChange={(event) => setSelectedLocationName(event.target.value)}
                 >
                   {locations.map((location) => (
@@ -253,26 +423,26 @@ export function RovingScreen() {
                 </select>
               </label>
               <div className="inline-actions">
-                <button onClick={() => void startVisit()} disabled={Boolean(activeVisit)}>Start Visit</button>
+                <button onClick={() => void startVisit()} disabled={Boolean(activeVisit) || isRecording}>Start Visit</button>
                 <button className="secondary" onClick={() => setShowForm(false)}>Cancel</button>
               </div>
             </article>
           ) : (
-            <button className="action-button full" onClick={() => setShowForm(true)} disabled={Boolean(activeVisit)}>
+            <button className="action-button full" onClick={() => setShowForm(true)} disabled={Boolean(activeVisit) || isRecording}>
               <Icon name="plus" />
               Add Visit
             </button>
           )}
         </>
-      ) : (
+      ) : !user.locationConsentGivenAt ? (
         <ConsentGate />
-      )}
+      ) : null}
 
       <div className="visit-list">
         {visits.length === 0 ? (
           <div className="empty-state">
             <strong>No visits yet</strong>
-            <p>Add Visit starts a location session. Later phases will enforce this again through the API and database constraints.</p>
+            <p>Add Visit starts a location session and is recorded with server-side authorization.</p>
           </div>
         ) : null}
         {visits.map((visit) => (
@@ -292,7 +462,7 @@ export function RovingScreen() {
               <small>{visit.distanceMeters ? `${visit.distanceMeters}m from selected location` : visit.travelFromPrevious}</small>
             </div>
             {visit.status === 'active' ? (
-              <button className="action-button full" onClick={() => void endVisit(visit.id)}>
+              <button className="action-button full" onClick={() => void endVisit(visit.id)} disabled={isRecording}>
                 End Visit
               </button>
             ) : null}
@@ -316,7 +486,8 @@ function readStoredVisits(userId: string): Visit[] {
   }
 
   try {
-    return JSON.parse(rawValue) as Visit[];
+    const visits = JSON.parse(rawValue) as Visit[];
+    return visits.every((visit) => Boolean(visit.sessionId && visit.capturedAtLocal)) ? visits : [];
   } catch {
     return [];
   }
@@ -336,7 +507,7 @@ function getTravelGapLabel(visits: Visit[]) {
     return 'First visit';
   }
 
-  return `${getDurationLabel(lastDoneVisit.timeOut, formatLocalTime(new Date().toISOString()))} travel gap`;
+  return `${getDurationLabel(lastDoneVisit.timeOutCapturedAtLocal, new Date().toISOString())} travel gap`;
 }
 
 function getDurationLabel(startTime: string | undefined, endTime: string | undefined) {
@@ -344,7 +515,7 @@ function getDurationLabel(startTime: string | undefined, endTime: string | undef
     return 'In progress';
   }
 
-  const minutes = Math.max(0, Math.floor((todayAt(endTime).getTime() - todayAt(startTime).getTime()) / 60000));
+  const minutes = Math.max(0, Math.floor((new Date(endTime).getTime() - new Date(startTime).getTime()) / 60000));
   return formatMinutes(minutes);
 }
 
@@ -353,7 +524,12 @@ function getVisitMinutes(visit: Visit) {
     return 0;
   }
 
-  return Math.max(0, Math.floor((todayAt(visit.timeOut).getTime() - todayAt(visit.timeIn).getTime()) / 60000));
+  return Math.max(
+    0,
+    Math.floor(
+      (new Date(visit.timeOutCapturedAtLocal ?? visit.timeOut).getTime() - new Date(visit.capturedAtLocal).getTime()) / 60000
+    )
+  );
 }
 
 function formatMinutes(totalMinutes: number) {
@@ -362,20 +538,13 @@ function formatMinutes(totalMinutes: number) {
   return `${hours}h ${String(minutes).padStart(2, '0')}m`;
 }
 
-function todayAt(timeLabel: string) {
-  const [hour = '0', minute = '0'] = timeLabel.split(':');
-  const date = new Date();
-  date.setHours(Number(hour), Number(minute), 0, 0);
-  return date;
-}
-
-function getEndVisitTimeGapWarning(visit: Visit | undefined) {
+function getEndVisitTimeGapWarning(visit: Visit | undefined, thresholdMinutes: number) {
   if (!visit?.timeIn) {
     return null;
   }
 
-  const gapMinutes = getMinutesSince(visit.timeIn);
-  if (gapMinutes >= shortAttendanceGapConfirmationMinutes) {
+  const gapMinutes = getMinutesSince(visit.capturedAtLocal);
+  if (gapMinutes >= thresholdMinutes) {
     return null;
   }
 
@@ -385,8 +554,8 @@ function getEndVisitTimeGapWarning(visit: Visit | undefined) {
   };
 }
 
-function getMinutesSince(timeLabel: string) {
-  return Math.max(0, Math.floor((new Date().getTime() - todayAt(timeLabel).getTime()) / 60000));
+function getMinutesSince(capturedAtLocal: string) {
+  return Math.max(0, Math.floor((new Date().getTime() - new Date(capturedAtLocal).getTime()) / 60000));
 }
 
 function getLocationByName(locationName: string, locations: Location[]) {
@@ -405,22 +574,14 @@ async function getGeoCheck(location: Location) {
   }
 }
 
-function getQueueOptionsFromGeoCheck(geoCheck: GeoCheckResult, warningAcknowledged: boolean) {
-  if (geoCheck.status === 'gps_unavailable') {
-    return {
-      locationName: geoCheck.location.name,
-      outsideAllowedRadius: true,
-      warningAcknowledged
-    };
-  }
-
+function createEmptyConfirmations(): RecorderConfirmations {
   return {
-    locationName: geoCheck.location.name,
-    latitude: geoCheck.latitude,
-    longitude: geoCheck.longitude,
-    gpsAccuracyMeters: geoCheck.accuracyMeters,
-    distanceMeters: geoCheck.distanceMeters,
-    outsideAllowedRadius: geoCheck.status === 'outside_radius',
-    warningAcknowledged
+    gpsWarningAcknowledged: false,
+    missingPhotoAcknowledged: false,
+    shortGapAcknowledged: false
   };
+}
+
+function isMockAuthMode() {
+  return import.meta.env.VITE_USE_MOCK_AUTH === 'true';
 }

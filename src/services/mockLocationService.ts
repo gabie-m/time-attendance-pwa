@@ -28,7 +28,7 @@ export function useMockLocations() {
 }
 
 export function listLocations() {
-  return readJson<Location[]>(locationStorageKey, seedLocations);
+  return normalizeLegacyLocationIds(readJson<Location[]>(locationStorageKey, seedLocations));
 }
 
 export function saveLocation(input: LocationFormInput) {
@@ -123,4 +123,15 @@ function readJson<T>(key: string, fallback: T) {
   } catch {
     return fallback;
   }
+}
+
+function normalizeLegacyLocationIds(locations: Location[]) {
+  const seedIdByName = new Map(seedLocations.map((location) => [location.name, location.id]));
+
+  return locations.map((location) => {
+    const replacementId = seedIdByName.get(location.name);
+    return location.id.startsWith('loc-') && replacementId
+      ? { ...location, id: replacementId }
+      : location;
+  });
 }

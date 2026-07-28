@@ -2,7 +2,7 @@ import type { Location } from '../domain/types';
 
 export const locations: Location[] = [
   {
-    id: 'loc-megamall',
+    id: '5f979d1a-19d6-4bb3-ae6c-111111111111',
     name: 'SM Megamall',
     address: 'Mandaluyong City',
     latitude: 14.5852,
@@ -11,7 +11,7 @@ export const locations: Location[] = [
     active: true
   },
   {
-    id: 'loc-galleria',
+    id: '5f979d1a-19d6-4bb3-ae6c-222222222222',
     name: 'Robinsons Galleria',
     address: 'Ortigas Center',
     latitude: 14.5915,
@@ -20,7 +20,7 @@ export const locations: Location[] = [
     active: true
   },
   {
-    id: 'loc-warehouse',
+    id: '5f979d1a-19d6-4bb3-ae6c-333333333333',
     name: 'Main Warehouse',
     address: 'Pasig City',
     latitude: 14.5764,

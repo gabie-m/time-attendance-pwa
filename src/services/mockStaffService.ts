@@ -5,6 +5,7 @@ import {
   seedStaffProfiles,
   seedUsers
 } from '../mocks/mockStaffData';
+import { locations as seedLocations } from '../mocks/mockLocations';
 
 export type UserRole = Role;
 export type StaffType = AttendanceModel;
@@ -138,7 +139,9 @@ export function listManagerStaffAssignments() {
 }
 
 export function listUserLocationAssignments() {
-  return readJson<UserLocationAssignment[]>(locationAssignmentsStorageKey, seedLocationAssignments);
+  return normalizeLegacyLocationAssignmentIds(
+    readJson<UserLocationAssignment[]>(locationAssignmentsStorageKey, seedLocationAssignments)
+  );
 }
 
 export function listStaffSetupRecords(): StaffSetupView[] {
@@ -495,6 +498,21 @@ function readJson<T>(key: string, fallback: T) {
   } catch {
     return fallback;
   }
+}
+
+function normalizeLegacyLocationAssignmentIds(assignments: UserLocationAssignment[]) {
+  const replacementIds = new Map([
+    ['loc-megamall', seedLocations.find((location) => location.name === 'SM Megamall')?.id],
+    ['loc-galleria', seedLocations.find((location) => location.name === 'Robinsons Galleria')?.id],
+    ['loc-warehouse', seedLocations.find((location) => location.name === 'Main Warehouse')?.id]
+  ]);
+
+  return assignments.map((assignment) => {
+    const replacementId = replacementIds.get(assignment.location_id);
+    return replacementId
+      ? { ...assignment, location_id: replacementId }
+      : assignment;
+  });
 }
 
 function success<T>(data: T): ServiceResult<T> {

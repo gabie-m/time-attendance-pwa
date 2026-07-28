@@ -24,7 +24,7 @@ Development phases:
 - Phase 1C, manual edit request flow: substantially complete in mock form.
 - Phase 1D, reports, attendance detail, and flag review workflows: substantially complete as static/mock UI; visual cleanup remains on `ui/visual-cleanup`.
 - Phase 2, backend/schema/auth foundation: complete in the repository. The initial migration and hardening migrations are merged and locally validated; hosted Supabase provisioning and deployment are deliberately deferred.
-- Phase 3, attendance API and validation engine: not started. The attendance-rules service is available, but the controlled attendance event/session recorder, event validation, and persistence APIs are not yet built.
+- Phase 3, attendance API and validation engine: the controlled Supabase recorder, immutable event/session persistence, and core GPS/photo/short-gap validation are complete. `feature/attendance-capture-integration` connects the stationary and roving capture screens to that recorder; offline queue sync and real attendance-history reads remain separate work.
 - Phase 4, offline sync implementation: only IndexedDB queue scaffold exists; full sync not started.
 - Phase 5+, notifications, exports, payroll-final reporting, security hardening, background jobs: deferred.
 
@@ -314,7 +314,7 @@ Remaining in current phase:
 - Real auth records consent through the `record_location_consent()` RPC in `users.location_consent_given_at`; mock mode retains its local fallback.
 - Shared auth still uses `MockUser`; replace it with a production `AuthUser` once the final database shape is merged.
 - Real auth currently leaves `expectedLocation` empty and carries a mock-style `users` array; clean these up when location assignments are wired.
-- Attendance sessions are intentionally not directly writable by authenticated clients. The next controlled attendance recorder must create sessions and immutable events together.
+- Attendance sessions are intentionally not directly writable by authenticated clients. The controlled attendance recorder now creates sessions and immutable events together; all future capture paths must use it.
 - Full offline sync is not implemented; only Dexie queue scaffolding exists.
 - Background sync on iOS is unsupported; UX must continue to be explicit.
 - Google Places address search is scaffolded but requires `VITE_GOOGLE_MAPS_API_KEY`.
