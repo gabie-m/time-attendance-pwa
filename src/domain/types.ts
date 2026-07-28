@@ -11,12 +11,63 @@ export type AttendanceEventType =
   | 'visit_out'
   | 'gps_ping';
 
+export type AttendanceSessionType = 'stationary_day' | 'field_visit';
+
+export type AttendanceSessionStatus = 'open' | 'closed' | 'needs_review';
+
 export type ValidationStatus =
   | 'normal'
   | 'warning'
   | 'flagged'
   | 'needs_review'
   | 'overtime_candidate';
+
+export type AttendanceFlagType =
+  | 'outside_radius'
+  | 'gps_low_accuracy'
+  | 'offline_submission'
+  | 'location_conflict'
+  | 'missing_punch'
+  | 'deactivated_user_record'
+  | 'late_sync'
+  | 'clock_discrepancy'
+  | 'early_lunch_return'
+  | 'photo_time_mismatch'
+  | 'missing_photo';
+
+export type AttendanceRecorderInput = {
+  clientEventId: string;
+  eventType: AttendanceEventType;
+  capturedAtLocal: string;
+  locationId: string;
+  sessionId?: string;
+  purpose?: string;
+  latitude?: number;
+  longitude?: number;
+  gpsAccuracyMeters?: number;
+  offlineDeclared?: boolean;
+  offlineEvidence?: Record<string, unknown>;
+  photoPath?: string;
+  photoMetadata?: Record<string, unknown>;
+  photoCapturedAt?: string;
+  gpsWarningAcknowledged?: boolean;
+  missingPhotoAcknowledged?: boolean;
+  shortGapAcknowledged?: boolean;
+};
+
+export type AttendanceRecorderResult = {
+  eventId: string;
+  sessionId: string;
+  eventType: AttendanceEventType;
+  sessionType: AttendanceSessionType;
+  workDate: string;
+  sessionStatus: AttendanceSessionStatus;
+  validationStatus: ValidationStatus;
+  flagTypes: AttendanceFlagType[];
+  receivedAtServer: string;
+  idempotentReplay: boolean;
+  source: 'mock' | 'supabase';
+};
 
 export type Location = {
   id: string;
