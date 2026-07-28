@@ -479,17 +479,18 @@ users/{user_id}/{work_date}/{session_id}/{client_event_id}.jpg
 
 **Status:** Accepted
 
-**Decision:** Authenticated clients cannot directly insert or update `attendance_sessions`. A future controlled database function or API endpoint must validate and create the session and immutable attendance event as one authorized operation.
+**Decision:** Authenticated clients cannot directly insert or update `attendance_sessions`. The `record_attendance_event(...)` database function validates and creates the session and immutable attendance event as one authorized operation.
 
 **Rationale:** Direct session writes could bypass session state, work-date, staff-model, consent, location, and immutable-event validation. The attendance boundary is integrity-sensitive and requires one server-side owner.
 
 **Implementation Notes:**
 
-- The schema currently permits session reads but revokes direct authenticated session mutations.
-- The recorder must require an active, consented user and enforce the approved stationary and roving session rules.
-- It must create append-only `attendance_events` and apply configured validation/flag workflow snapshots.
+- The schema permits session reads but revokes direct authenticated session mutations.
+- The recorder requires an active, consented user and enforces the approved stationary and roving session rules.
+- It creates append-only `attendance_events` and applies configured validation/flag workflow snapshots.
+- Stationary and roving capture screens use the recorder and pass distinct acknowledgements for GPS/location, short-gap, and missing-photo confirmations.
 
-**Future Impact:** This is the primary deliverable of the next `attendance_events` / `attendance_flags` migration and attendance-integrity implementation milestone.
+**Future Impact:** Offline queue replay and real attendance-history reads must use the same recorder contract; they must not reintroduce direct table writes.
 
 ---
 

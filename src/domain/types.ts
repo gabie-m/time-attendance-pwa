@@ -81,6 +81,8 @@ export type Location = {
 
 export type AttendanceEvent = {
   id: string;
+  sessionId: string;
+  capturedAtLocal: string;
   type: AttendanceEventType;
   label: string;
   localTime: string;
@@ -93,11 +95,14 @@ export type AttendanceEvent = {
 
 export type Visit = {
   id: string;
+  sessionId: string;
+  capturedAtLocal: string;
   status: 'done' | 'active' | 'planned';
   locationName: string;
   purpose: string;
   timeIn?: string;
   timeOut?: string;
+  timeOutCapturedAtLocal?: string;
   duration: string;
   travelFromPrevious: string;
   distanceMeters?: number;

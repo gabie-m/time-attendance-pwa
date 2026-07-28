@@ -84,13 +84,6 @@ Update this document whenever a deferred item is built, a gap is resolved, or a 
 | G-11 | `users` array in real auth provider | `src/auth/AuthProvider.tsx` | Leftover mock pattern. Real auth provider only needs the single authenticated `user`. Clean up after auth is stable. |
 | G-13 | `useMockAuth` still exists | `src/auth/` | Not deleted, just unused after `useAuth` migration. Clean up after `feature/supabase-auth` is stable. |
 
-### Architecture
-| # | Gap | Where | Notes |
-|---|-----|-------|-------|
-| G-15 | Controlled attendance recorder not built | Attendance capture/API boundary | Direct client session writes are intentionally revoked. The next attendance event/session recorder must enforce session state, work-date, location, consent, and immutable-event rules together. |
-
----
-
 ## Resolved Items
 
 | # | Item | Resolution |
@@ -100,6 +93,7 @@ Update this document whenever a deferred item is built, a gap is resolved, or a 
 | G-03 | Manager SELECT policy on users and staff_profiles tables | Resolved by PR #6 through direct-team and active delegated-team RLS policies. |
 | G-07 | Real location consent persistence | Resolved by PR #7. Real auth stores consent through `record_location_consent()`; mock mode retains a local fallback. |
 | G-12 | Real-provider consent behavior | Resolved by PR #7. Consent save failures are visible in the shared gate and duplicate submissions are guarded. |
+| G-15 | Controlled attendance recorder not built | Resolved by PR #12. The controlled recorder owns authorized session creation, immutable event creation, idempotency, core validation, and flag creation. Capture-screen integration is delivered by `feature/attendance-capture-integration`; offline queue sync and real history reads remain separate work. |
 
 ---
 
@@ -182,4 +176,4 @@ Update this document whenever a deferred item is built, a gap is resolved, or a 
 | N-16 | Real Supabase provider is lazy loaded via AppAuthProvider — never initialized in mock mode |
 | N-17 | Auth provider does not handle redirects — routing logic belongs in ProtectedRoute only |
 | N-18 | Real location consent is stored by the `record_location_consent()` RPC; the client must use the returned database timestamp |
-| N-19 | Authenticated clients cannot directly create or update attendance sessions; the controlled attendance recorder will own session and immutable event creation |
+| N-19 | Authenticated clients cannot directly create or update attendance sessions; the controlled attendance recorder owns session and immutable event creation |

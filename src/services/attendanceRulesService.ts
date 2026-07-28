@@ -7,7 +7,8 @@ export type AttendanceRuleKey =
   | 'overtime_threshold_minutes'
   | 'lunch_deduction_minutes'
   | 'photo_time_mismatch_threshold_minutes'
-  | 'clock_discrepancy_threshold_minutes';
+  | 'clock_discrepancy_threshold_minutes'
+  | 'short_attendance_gap_confirmation_minutes';
 
 export type AttendanceRules = Record<AttendanceRuleKey, number>;
 
@@ -23,7 +24,8 @@ export const defaultAttendanceRules: AttendanceRules = {
   overtime_threshold_minutes: 480,
   lunch_deduction_minutes: 60,
   photo_time_mismatch_threshold_minutes: 5,
-  clock_discrepancy_threshold_minutes: 5
+  clock_discrepancy_threshold_minutes: 5,
+  short_attendance_gap_confirmation_minutes: 30
 };
 
 let cachedRules: {

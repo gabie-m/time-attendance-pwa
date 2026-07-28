@@ -143,7 +143,7 @@ export const seedLocationAssignments: UserLocationAssignment[] = [
   {
     id: 'loc-assign-1',
     user_id: 'user-stationary',
-    location_id: 'loc-megamall',
+    location_id: '5f979d1a-19d6-4bb3-ae6c-111111111111',
     assignment_type: 'primary',
     effective_from: '2026-05-01',
     effective_to: null,
@@ -153,7 +153,7 @@ export const seedLocationAssignments: UserLocationAssignment[] = [
   {
     id: 'loc-assign-2',
     user_id: 'user-roving',
-    location_id: 'loc-galleria',
+    location_id: '5f979d1a-19d6-4bb3-ae6c-222222222222',
     assignment_type: 'allowed',
     effective_from: '2026-05-01',
     effective_to: null,
@@ -163,7 +163,7 @@ export const seedLocationAssignments: UserLocationAssignment[] = [
   {
     id: 'loc-assign-3',
     user_id: 'manager',
-    location_id: 'loc-megamall',
+    location_id: '5f979d1a-19d6-4bb3-ae6c-111111111111',
     assignment_type: 'allowed',
     effective_from: '2026-05-01',
     effective_to: null,
