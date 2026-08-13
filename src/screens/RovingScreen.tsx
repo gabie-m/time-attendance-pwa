@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useAuth } from '../auth/useAuth';
 import { ConsentGate } from '../components/ConsentGate';
 import { Icon } from '../components/Icon';
@@ -6,14 +6,30 @@ import { LocationWarning } from '../components/LocationWarning';
 import { ManualEditRequestPanel } from '../components/ManualEditRequestPanel';
 import { MetricCard } from '../components/MetricCard';
 import { MissingPhotoWarning } from '../components/MissingPhotoWarning';
+import { OfflineSyncNotice } from '../components/OfflineSyncNotice';
 import { PlatformNotice } from '../components/PlatformNotice';
 import { Pill } from '../components/Pill';
 import { TimeGapWarning } from '../components/TimeGapWarning';
-import type { Location, Visit } from '../domain/types';
+import type {
+  AttendanceEventType,
+  AttendanceFlagType,
+  AttendanceRecorderInput,
+  AttendanceRecorderResult,
+  Location,
+  Visit
+} from '../domain/types';
 import { useAttendanceLocations } from '../hooks/useAttendanceLocations';
 import { useAttendanceRules } from '../hooks/useAttendanceRules';
+import { useOfflineAttendanceSync } from '../hooks/useOfflineAttendanceSync';
+import {
+  getAttendanceAcknowledgement,
+  getAttendanceAcknowledgements,
+  getQueuedAttendanceEventsForPresentation,
+  getRovingAttendancePresentation,
+  saveRovingAttendancePresentation
+} from '../offline/offlineQueue';
 import { getAttendanceRuleValue } from '../services/attendanceRulesService';
-import { recordAttendanceEvent } from '../services/attendanceRecorderService';
+import { captureAttendanceEvent } from '../services/attendanceCaptureService';
 import {
   checkCurrentPositionAgainstLocation,
   getGpsUnavailableResult,
@@ -30,6 +46,7 @@ type RecorderConfirmations = {
 export function RovingScreen() {
   const { user: authUser } = useAuth();
   const user = authUser!;
+  const offlineSync = useOfflineAttendanceSync(user.id);
   const {
     data: locations,
     isError: hasLocationsError,
@@ -63,10 +80,16 @@ export function RovingScreen() {
     confirmations: RecorderConfirmations;
     visitId?: string;
   } | null>(null);
-  const [visitsByUser, setVisitsByUser] = useState<Record<string, Visit[]>>({});
-  const visits = useMemo(() => visitsByUser[user.id] ?? readStoredVisits(user.id), [user.id, visitsByUser]);
-  const activeVisit = visits.find((visit) => visit.status === 'active');
-  const doneVisits = visits.filter((visit) => visit.status === 'done');
+  const [visits, setVisits] = useState<Visit[]>([]);
+  const [presentationUserId, setPresentationUserId] = useState<string | null>(null);
+  const isPresentationLoaded = presentationUserId === user.id;
+  const queueStateKey = `${offlineSync.failedEventIds.join(',')}:${offlineSync.queuedEventIds.join(',')}`;
+  const hasFailedVisits = offlineSync.legacyRecordCount > 0
+    || offlineSync.failedEventIds.length > 0
+    || visits.some((visit) => visit.serverStatus === 'failed');
+  const activeVisit = visits.find((visit) => visit.status === 'active' && visit.serverStatus !== 'failed');
+  const recordedVisits = visits.filter((visit) => visit.serverStatus !== 'failed');
+  const doneVisits = recordedVisits.filter((visit) => visit.status === 'done');
   const totalVisitMinutes = doneVisits.reduce((sum, visit) => sum + getVisitMinutes(visit), 0);
   const shortGapConfirmationMinutes = attendanceRules
     ? getAttendanceRuleValue(attendanceRules, 'short_attendance_gap_confirmation_minutes')
@@ -74,11 +97,58 @@ export function RovingScreen() {
   const hasAvailableRules = Boolean(attendanceRules) && !hasRulesError;
   const hasAvailableLocations = Boolean(locations?.length) && !hasLocationsError;
   const hasNoPermittedLocations = locations?.length === 0 && !hasLocationsError;
-  const hasAvailableCaptureSetup = hasAvailableRules && hasAvailableLocations;
+  const hasAvailableCaptureSetup = isPresentationLoaded && hasAvailableRules && hasAvailableLocations && !hasFailedVisits;
 
   useEffect(() => {
-    window.localStorage.setItem(getStorageKey(user.id), JSON.stringify(visits));
-  }, [user.id, visits]);
+    let active = true;
+    void Promise.all([
+      getRovingAttendancePresentation(user.id),
+      getQueuedAttendanceEventsForPresentation(user.id),
+      getAttendanceAcknowledgements(user.id)
+    ]).then(([storedVisits, pendingEvents, acknowledgements]) => {
+      if (active) {
+        setVisits(mergeRovingVisits(
+          storedVisits ?? readLegacyStoredVisits(user.id),
+          rebuildRovingVisits(pendingEvents, acknowledgements) ?? []
+        ));
+        setPresentationUserId(user.id);
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, [queueStateKey, user.id]);
+
+  useEffect(() => {
+    if (isPresentationLoaded) {
+      void saveRovingAttendancePresentation(user.id, visits);
+    }
+  }, [isPresentationLoaded, user.id, visits]);
+
+  useEffect(() => {
+    const awaitingAcknowledgement = visits.filter((visit) => getVisitSyncEventIds(visit).some(
+      (clientEventId) => !offlineSync.queuedEventIds.includes(clientEventId)
+    ));
+    if (awaitingAcknowledgement.length === 0) {
+      return;
+    }
+
+    void Promise.all(awaitingAcknowledgement.map(async (visit) => ({
+      visit,
+      results: await Promise.all(getVisitSyncEventIds(visit).map(async (clientEventId) => ({
+        clientEventId,
+        result: await getAttendanceAcknowledgement(user.id, clientEventId)
+      })))
+    }))).then((acknowledgements) => {
+      if (!acknowledgements.some((item) => item.results.some((result) => result.result))) {
+        return;
+      }
+      setVisits((currentVisits) => currentVisits.map((visit) => {
+        const acknowledgement = acknowledgements.find((item) => item.visit.id === visit.id);
+        return acknowledgement ? applyAcknowledgements(visit, acknowledgement.results) : visit;
+      }));
+    });
+  }, [offlineSync.queuedEventIds, user.id, visits]);
 
   async function startVisit() {
     if (activeVisit || !hasAvailableCaptureSetup || !locations) {
@@ -111,7 +181,7 @@ export function RovingScreen() {
     setIsRecording(true);
     setMessage(null);
     const capturedAtLocal = new Date().toISOString();
-    const result = await recordAttendanceEvent({
+    const result = await captureAttendanceEvent(user.id, {
       clientEventId: crypto.randomUUID(),
       eventType: 'visit_in',
       capturedAtLocal,
@@ -131,8 +201,8 @@ export function RovingScreen() {
 
     const localTime = formatLocalTime(capturedAtLocal);
     const nextVisit: Visit = {
-      id: result.data.sessionId,
-      sessionId: result.data.sessionId,
+      id: result.data.record.sessionId,
+      sessionId: result.data.record.sessionId,
       capturedAtLocal,
       status: 'active',
       locationName: geoCheck.location.name,
@@ -141,16 +211,13 @@ export function RovingScreen() {
       duration: 'In progress',
       travelFromPrevious: getTravelGapLabel(visits),
       distanceMeters: geoCheck.status === 'gps_unavailable' ? undefined : geoCheck.distanceMeters,
-      validationStatus: result.data.validationStatus
+      validationStatus: result.data.record.validationStatus,
+      flagTypes: result.data.record.flagTypes,
+      serverStatus: result.data.delivery === 'queued' ? 'pending' : 'synced',
+      syncEventIds: result.data.delivery === 'queued' ? [result.data.record.clientEventId] : []
     };
 
-    setVisitsByUser((currentVisitsByUser) => {
-      const currentVisits = currentVisitsByUser[user.id] ?? readStoredVisits(user.id);
-      return {
-        ...currentVisitsByUser,
-        [user.id]: [nextVisit, ...currentVisits]
-      };
-    });
+    setVisits((currentVisits) => [nextVisit, ...currentVisits]);
     setShowForm(false);
     setPendingLocationWarning(null);
     setPendingTimeGapWarning(null);
@@ -214,7 +281,7 @@ export function RovingScreen() {
     setIsRecording(true);
     setMessage(null);
     const capturedAtLocal = new Date().toISOString();
-    const result = await recordAttendanceEvent({
+    const result = await captureAttendanceEvent(user.id, {
       clientEventId: crypto.randomUUID(),
       eventType: 'visit_out',
       capturedAtLocal,
@@ -234,11 +301,7 @@ export function RovingScreen() {
 
     const localTime = formatLocalTime(capturedAtLocal);
 
-    setVisitsByUser((currentVisitsByUser) => {
-      const currentVisits = currentVisitsByUser[user.id] ?? readStoredVisits(user.id);
-      return {
-        ...currentVisitsByUser,
-        [user.id]: currentVisits.map((visit) => {
+    setVisits((currentVisits) => currentVisits.map((visit) => {
           if (visit.id !== visitId) {
             return visit;
           }
@@ -250,11 +313,14 @@ export function RovingScreen() {
             timeOutCapturedAtLocal: capturedAtLocal,
             duration: getDurationLabel(visit.capturedAtLocal, capturedAtLocal),
             distanceMeters: geoCheck.status === 'gps_unavailable' ? visit.distanceMeters : geoCheck.distanceMeters,
-            validationStatus: result.data.validationStatus
+            validationStatus: result.data.record.validationStatus,
+            flagTypes: mergeFlagTypes(visit.flagTypes, result.data.record.flagTypes),
+            serverStatus: result.data.delivery === 'queued' ? 'pending' : 'synced',
+            syncEventIds: result.data.delivery === 'queued'
+              ? [...getVisitSyncEventIds(visit), result.data.record.clientEventId]
+              : getVisitSyncEventIds(visit)
           };
-        })
-      };
-    });
+        }));
     setPendingLocationWarning(null);
     setPendingTimeGapWarning(null);
     setPendingPhotoWarning(null);
@@ -264,10 +330,7 @@ export function RovingScreen() {
     if (!isMockAuthMode()) {
       return;
     }
-    setVisitsByUser((currentVisitsByUser) => ({
-      ...currentVisitsByUser,
-      [user.id]: []
-    }));
+    setVisits([]);
     setShowForm(false);
   }
 
@@ -282,6 +345,7 @@ export function RovingScreen() {
         <Pill tone="overtime">Route 04</Pill>
       </header>
       <PlatformNotice />
+      <OfflineSyncNotice {...offlineSync} onSyncNow={() => void offlineSync.syncNow()} />
 
       {!hasAvailableRules ? (
         <article className="status-panel" role={hasRulesError ? 'alert' : 'status'}>
@@ -330,9 +394,9 @@ export function RovingScreen() {
       ) : null}
 
       <div className="metric-grid">
-        <MetricCard label="Visits" value={String(visits.length)} detail={`${doneVisits.length} done · ${activeVisit ? '1 active' : '0 active'}`} />
+        <MetricCard label="Visits" value={String(recordedVisits.length)} detail={`${doneVisits.length} done · ${activeVisit ? '1 active' : '0 active'}`} />
         <MetricCard label="On-site" value={formatMinutes(totalVisitMinutes)} detail="Travel excluded" tone="success" />
-        <MetricCard label="Recorded" value={String(visits.length)} detail="Submitted through attendance recorder" tone="success" />
+        <MetricCard label="Recorded" value={String(recordedVisits.length)} detail="Submitted through attendance recorder" tone="success" />
         <MetricCard label="Travel" value="Paid" detail="Non-productive, separate" tone="indigo" />
       </div>
 
@@ -450,11 +514,12 @@ export function RovingScreen() {
             <div>
               <div className="visit-card-top">
                 <h2>{visit.locationName}</h2>
-                <Pill tone={visit.validationStatus === 'flagged' ? 'flag' : visit.status === 'active' ? 'warn' : visit.status === 'done' ? 'success' : 'neutral'}>
-                  {visit.validationStatus === 'flagged' ? 'flagged' : visit.status}
+                <Pill tone={isVisitFailed(visit, offlineSync.failedEventIds) ? 'warn' : isVisitPending(visit, offlineSync.queuedEventIds) ? 'sync' : visit.validationStatus === 'flagged' ? 'flag' : visit.status === 'active' ? 'warn' : visit.status === 'done' ? 'success' : 'neutral'}>
+                  {isVisitFailed(visit, offlineSync.failedEventIds) ? 'needs attention' : isVisitPending(visit, offlineSync.queuedEventIds) ? 'pending' : visit.validationStatus === 'flagged' ? 'flagged' : visit.status}
                 </Pill>
               </div>
               <p>{visit.purpose}</p>
+              {visit.flagTypes?.length ? <small>Flags: {visit.flagTypes.map(formatFlagType).join(', ')}</small> : null}
             </div>
             <div className="visit-meta">
               <span>{visit.timeIn ?? '--'} → {visit.timeOut ?? '--'}</span>
@@ -462,7 +527,7 @@ export function RovingScreen() {
               <small>{visit.distanceMeters ? `${visit.distanceMeters}m from selected location` : visit.travelFromPrevious}</small>
             </div>
             {visit.status === 'active' ? (
-              <button className="action-button full" onClick={() => void endVisit(visit.id)} disabled={isRecording}>
+              <button className="action-button full" onClick={() => void endVisit(visit.id)} disabled={isRecording || hasFailedVisits}>
                 End Visit
               </button>
             ) : null}
@@ -475,12 +540,34 @@ export function RovingScreen() {
   );
 }
 
-function getStorageKey(userId: string) {
-  return `roving-visits:${userId}`;
+function applyAcknowledgements(
+  visit: Visit,
+  acknowledgements: Array<{ clientEventId: string; result: AttendanceRecorderResult | null }>
+): Visit {
+  const acknowledgedResults = acknowledgements.flatMap((item) => item.result ? [item.result] : []);
+  const flagTypes = acknowledgedResults.reduce(
+    (currentFlags, result) => mergeFlagTypes(currentFlags, result.flagTypes),
+    visit.flagTypes ?? []
+  );
+  const pendingSyncEventIds = acknowledgements
+    .filter((item) => !item.result)
+    .map((item) => item.clientEventId);
+  return {
+    ...visit,
+    serverStatus: pendingSyncEventIds.length > 0 ? 'pending' : 'synced',
+    validationStatus: flagTypes.length > 0 ? 'flagged' : acknowledgedResults.at(-1)?.validationStatus ?? visit.validationStatus,
+    flagTypes,
+    syncEventIds: pendingSyncEventIds,
+    syncEventId: undefined
+  };
 }
 
-function readStoredVisits(userId: string): Visit[] {
-  const rawValue = window.localStorage.getItem(getStorageKey(userId));
+function mergeFlagTypes(current: AttendanceFlagType[] | undefined, next: AttendanceFlagType[]) {
+  return [...new Set([...(current ?? []), ...next])];
+}
+
+function readLegacyStoredVisits(userId: string): Visit[] {
+  const rawValue = window.localStorage.getItem(`roving-visits:${userId}`);
   if (!rawValue) {
     return [];
   }
@@ -491,6 +578,139 @@ function readStoredVisits(userId: string): Visit[] {
   } catch {
     return [];
   }
+}
+
+function rebuildRovingVisits(
+  pendingEvents: Array<AttendanceRecorderInput & { syncStatus: 'pending' | 'syncing' | 'failed' }>,
+  acknowledgements: Array<{ input: AttendanceRecorderInput; result: AttendanceRecorderResult }>
+): Visit[] | null {
+  const acknowledgedRoving = acknowledgements.filter((item) => isRovingEvent(item.input.eventType));
+  const acknowledgedIds = new Set(acknowledgedRoving.map((item) => item.input.clientEventId));
+  const pendingRoving = pendingEvents.filter(
+    (event) => isRovingEvent(event.eventType) && !acknowledgedIds.has(event.clientEventId)
+  );
+  if (acknowledgedRoving.length === 0 && pendingRoving.length === 0) {
+    return null;
+  }
+
+  const eventRecords = [
+    ...acknowledgedRoving.map(({ input, result }) => ({ input, result, pending: false, failed: false })),
+    ...pendingRoving.map((input) => ({ input, result: null, pending: input.syncStatus !== 'failed', failed: input.syncStatus === 'failed' }))
+  ].sort((left, right) => left.input.capturedAtLocal.localeCompare(right.input.capturedAtLocal));
+  const visitsBySession = new Map<string, Visit>();
+
+  for (const record of eventRecords) {
+    const sessionId = record.result?.sessionId ?? record.input.sessionId ?? record.input.clientEventId;
+    if (record.input.eventType === 'visit_in') {
+      visitsBySession.set(sessionId, {
+        id: sessionId,
+        sessionId,
+        capturedAtLocal: record.input.capturedAtLocal,
+        status: record.failed ? 'planned' : 'active',
+        locationName: record.input.locationId,
+        purpose: record.input.purpose ?? 'Field visit',
+        timeIn: formatLocalTime(record.input.capturedAtLocal),
+        duration: 'In progress',
+        travelFromPrevious: 'Recovered from offline queue',
+        validationStatus: record.result?.validationStatus ?? provisionalValidationStatus(record.input),
+        flagTypes: record.result?.flagTypes ?? getProvisionalFlagTypes(record.input),
+        serverStatus: record.failed ? 'failed' : record.pending ? 'pending' : 'synced',
+        syncEventIds: record.pending ? [record.input.clientEventId] : []
+      });
+      continue;
+    }
+
+    const visit = visitsBySession.get(sessionId);
+    if (!visit) {
+      continue;
+    }
+    if (record.failed) {
+      visitsBySession.set(sessionId, {
+        ...visit,
+        serverStatus: 'failed',
+        syncEventIds: [...getVisitSyncEventIds(visit), record.input.clientEventId]
+      });
+      continue;
+    }
+    const flags = mergeFlagTypes(visit.flagTypes, record.result?.flagTypes ?? getProvisionalFlagTypes(record.input));
+    visitsBySession.set(sessionId, {
+      ...visit,
+      status: 'done',
+      timeOut: formatLocalTime(record.input.capturedAtLocal),
+      timeOutCapturedAtLocal: record.input.capturedAtLocal,
+      duration: getDurationLabel(visit.capturedAtLocal, record.input.capturedAtLocal),
+      validationStatus: flags.length > 0 ? 'flagged' : record.result?.validationStatus ?? visit.validationStatus,
+      flagTypes: flags,
+      serverStatus: record.pending ? 'pending' : visit.serverStatus,
+      syncEventIds: record.pending
+        ? [...getVisitSyncEventIds(visit), record.input.clientEventId]
+        : getVisitSyncEventIds(visit)
+    });
+  }
+
+  return [...visitsBySession.values()].sort((left, right) => right.capturedAtLocal.localeCompare(left.capturedAtLocal));
+}
+
+function mergeRovingVisits(storedVisits: Visit[], recoveredVisits: Visit[]) {
+  const recoveredBySession = new Map(recoveredVisits.map((visit) => [visit.sessionId, visit]));
+  const mergedStoredVisits = storedVisits.map((visit) => {
+    const recovered = recoveredBySession.get(visit.sessionId);
+    if (!recovered) {
+      return visit;
+    }
+    recoveredBySession.delete(visit.sessionId);
+    return {
+      ...visit,
+      ...recovered,
+      flagTypes: mergeFlagTypes(visit.flagTypes, recovered.flagTypes ?? []),
+      syncEventIds: mergeSyncEventIds(visit, recovered)
+    };
+  });
+  return [...mergedStoredVisits, ...recoveredBySession.values()]
+    .sort((left, right) => right.capturedAtLocal.localeCompare(left.capturedAtLocal));
+}
+
+function mergeSyncEventIds(left: Visit, right: Visit) {
+  return [...new Set([...getVisitSyncEventIds(left), ...getVisitSyncEventIds(right)])];
+}
+
+function isRovingEvent(eventType: AttendanceEventType) {
+  return eventType === 'visit_in' || eventType === 'visit_out';
+}
+
+function isPhotoRequired(eventType: AttendanceEventType) {
+  return eventType === 'time_in' || eventType === 'time_out' || eventType === 'visit_in' || eventType === 'visit_out';
+}
+
+function getProvisionalFlagTypes(input: AttendanceRecorderInput) {
+  const flagTypes: AttendanceFlagType[] = [];
+  if (input.offlineDeclared) {
+    flagTypes.push('offline_submission');
+  }
+  if (isPhotoRequired(input.eventType) && !input.photoPath?.trim()) {
+    flagTypes.push('missing_photo');
+  }
+  return flagTypes;
+}
+
+function provisionalValidationStatus(input: AttendanceRecorderInput): Visit['validationStatus'] {
+  return getProvisionalFlagTypes(input).length > 0 ? 'flagged' : 'normal';
+}
+
+function isVisitPending(visit: Visit, queuedEventIds: string[]) {
+  return visit.serverStatus === 'pending' && getVisitSyncEventIds(visit).some((eventId) => queuedEventIds.includes(eventId));
+}
+
+function isVisitFailed(visit: Visit, failedEventIds: string[]) {
+  return visit.serverStatus === 'failed' || getVisitSyncEventIds(visit).some((eventId) => failedEventIds.includes(eventId));
+}
+
+function getVisitSyncEventIds(visit: Visit) {
+  return visit.syncEventIds ?? (visit.syncEventId ? [visit.syncEventId] : []);
+}
+
+function formatFlagType(flagType: AttendanceFlagType) {
+  return flagType.replaceAll('_', ' ');
 }
 
 function formatLocalTime(isoDate: string) {

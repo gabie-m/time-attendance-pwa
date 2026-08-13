@@ -6,14 +6,29 @@ import { LocationWarning } from '../components/LocationWarning';
 import { ManualEditRequestPanel } from '../components/ManualEditRequestPanel';
 import { MetricCard } from '../components/MetricCard';
 import { MissingPhotoWarning } from '../components/MissingPhotoWarning';
+import { OfflineSyncNotice } from '../components/OfflineSyncNotice';
 import { PlatformNotice } from '../components/PlatformNotice';
 import { Pill } from '../components/Pill';
 import { TimeGapWarning } from '../components/TimeGapWarning';
-import type { AttendanceEvent, AttendanceEventType, AttendanceRecorderResult, Location } from '../domain/types';
+import type {
+  AttendanceEvent,
+  AttendanceEventType,
+  AttendanceRecorderInput,
+  AttendanceRecorderResult,
+  Location
+} from '../domain/types';
 import { useAttendanceLocations } from '../hooks/useAttendanceLocations';
 import { useAttendanceRules } from '../hooks/useAttendanceRules';
+import { useOfflineAttendanceSync } from '../hooks/useOfflineAttendanceSync';
+import {
+  getAttendanceAcknowledgement,
+  getAttendanceAcknowledgements,
+  getQueuedAttendanceEventsForPresentation,
+  getStationaryAttendancePresentation,
+  saveStationaryAttendancePresentation
+} from '../offline/offlineQueue';
 import { getAttendanceRuleValue } from '../services/attendanceRulesService';
-import { recordAttendanceEvent } from '../services/attendanceRecorderService';
+import { captureAttendanceEvent } from '../services/attendanceCaptureService';
 import {
   checkCurrentPositionAgainstLocation,
   getGpsUnavailableResult,
@@ -40,6 +55,7 @@ type RecorderConfirmations = {
 export function StationaryScreen() {
   const { user: authUser } = useAuth();
   const user = authUser!;
+  const offlineSync = useOfflineAttendanceSync(user.id);
   const {
     data: locations,
     isError: hasLocationsError,
@@ -68,27 +84,85 @@ export function StationaryScreen() {
     geoCheck: GeoCheckResult;
     confirmations: RecorderConfirmations;
   } | null>(null);
-  const [eventsByUser, setEventsByUser] = useState<Record<string, AttendanceEvent[]>>({});
-  const events = useMemo(() => eventsByUser[user.id] ?? readStoredEvents(user.id), [eventsByUser, user.id]);
+  const [events, setEvents] = useState<AttendanceEvent[]>([]);
+  const [presentationUserId, setPresentationUserId] = useState<string | null>(null);
+  const isPresentationLoaded = presentationUserId === user.id;
+  const queueStateKey = `${offlineSync.failedEventIds.join(',')}:${offlineSync.queuedEventIds.join(',')}`;
   const assignedLocation = useMemo(() => {
     return locations?.find((location) => location.name === user.expectedLocation) ?? locations?.[0];
   }, [locations, user.expectedLocation]);
 
   useEffect(() => {
-    window.localStorage.setItem(getStorageKey(user.id), JSON.stringify(events));
-  }, [events, user.id]);
+    let active = true;
+    void Promise.all([
+      getStationaryAttendancePresentation(user.id),
+      getQueuedAttendanceEventsForPresentation(user.id),
+      getAttendanceAcknowledgements(user.id)
+    ]).then(([storedEvents, pendingEvents, acknowledgements]) => {
+      if (active) {
+        setEvents(mergeStationaryEvents(
+          storedEvents ?? readLegacyStoredEvents(user.id),
+          rebuildStationaryEvents(pendingEvents, acknowledgements) ?? []
+        ));
+        setPresentationUserId(user.id);
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, [queueStateKey, user.id]);
 
+  useEffect(() => {
+    if (isPresentationLoaded) {
+      void saveStationaryAttendancePresentation(user.id, events);
+    }
+  }, [events, isPresentationLoaded, user.id]);
+
+  useEffect(() => {
+    const awaitingAcknowledgement = events.filter(
+      (event) => event.serverStatus === 'pending' && !offlineSync.queuedEventIds.includes(event.id)
+    );
+    if (awaitingAcknowledgement.length === 0) {
+      return;
+    }
+
+    void Promise.all(
+      awaitingAcknowledgement.map(async (event) => ({
+        event,
+        result: await getAttendanceAcknowledgement(user.id, event.id)
+      }))
+    ).then((acknowledgements) => {
+      const byClientEventId = new Map(
+        acknowledgements
+          .filter((item) => item.result)
+          .map((item) => [item.event.id, item.result!])
+      );
+      if (byClientEventId.size === 0) {
+        return;
+      }
+      setEvents((currentEvents) => currentEvents.map((event) => {
+        const result = byClientEventId.get(event.id);
+        return result ? applyAcknowledgement(event, result) : event;
+      }));
+    });
+  }, [events, offlineSync.queuedEventIds, user.id]);
+
+  const hasFailedEvents = offlineSync.legacyRecordCount > 0
+    || offlineSync.failedEventIds.length > 0
+    || events.some((event) => event.serverStatus === 'failed');
   const nextAction = useMemo(() => {
-    const completedTypes = events.map((event) => event.type);
+    if (hasFailedEvents) return undefined;
+    const completedTypes = events.filter((event) => event.serverStatus !== 'failed').map((event) => event.type);
     return stationaryActionOrder.find((type) => !completedTypes.includes(type));
-  }, [events]);
+  }, [events, hasFailedEvents]);
 
-  const isClockedIn = events.some((event) => event.type === 'time_in') && !events.some((event) => event.type === 'time_out');
-  const isOnLunch = events.some((event) => event.type === 'lunch_out') && !events.some((event) => event.type === 'lunch_in');
+  const completedEvents = events.filter((event) => event.serverStatus !== 'failed');
+  const isClockedIn = completedEvents.some((event) => event.type === 'time_in') && !completedEvents.some((event) => event.type === 'time_out');
+  const isOnLunch = completedEvents.some((event) => event.type === 'lunch_out') && !completedEvents.some((event) => event.type === 'lunch_in');
   const hasAvailableRules = Boolean(attendanceRules) && !hasRulesError;
   const hasAvailableLocations = Boolean(locations?.length) && !hasLocationsError;
   const hasNoPermittedLocations = locations?.length === 0 && !hasLocationsError;
-  const hasAvailableCaptureSetup = hasAvailableRules && hasAvailableLocations && Boolean(assignedLocation);
+  const hasAvailableCaptureSetup = isPresentationLoaded && hasAvailableRules && hasAvailableLocations && Boolean(assignedLocation);
   const lunchDeductionMinutes = attendanceRules
     ? getAttendanceRuleValue(attendanceRules, 'lunch_deduction_minutes')
     : null;
@@ -143,7 +217,7 @@ export function StationaryScreen() {
     const sessionId = action === 'time_in'
       ? undefined
       : events.find((event) => event.type === 'time_in')?.sessionId;
-    const result = await recordAttendanceEvent({
+    const result = await captureAttendanceEvent(user.id, {
       clientEventId: crypto.randomUUID(),
       eventType: action,
       capturedAtLocal,
@@ -162,26 +236,22 @@ export function StationaryScreen() {
     }
 
     const nextEvent: AttendanceEvent = {
-      id: result.data.eventId,
-      sessionId: result.data.sessionId,
+      id: result.data.record.eventId,
+      sessionId: result.data.record.sessionId,
       capturedAtLocal,
+      workDate: result.data.record.workDate,
       type: action,
       label: actionLabels[action],
       localTime: formatLocalTime(capturedAtLocal),
-      serverStatus: 'synced',
+      serverStatus: result.data.delivery === 'queued' ? 'pending' : 'synced',
       locationName: geoCheck.location.name,
       distanceMeters: geoCheck.status === 'gps_unavailable' ? undefined : geoCheck.distanceMeters,
-      validationStatus: result.data.validationStatus,
-      detail: getEventDetail(geoCheck, result.data)
+      validationStatus: result.data.record.validationStatus,
+      flagTypes: result.data.record.flagTypes,
+      detail: getEventDetail(geoCheck, result.data.record)
     };
 
-    setEventsByUser((currentEventsByUser) => {
-      const currentEvents = currentEventsByUser[user.id] ?? readStoredEvents(user.id);
-      return {
-        ...currentEventsByUser,
-        [user.id]: [...currentEvents, nextEvent]
-      };
-    });
+    setEvents((currentEvents) => [...currentEvents, nextEvent]);
     setPendingLocationWarning(null);
     setPendingTimeGapWarning(null);
     setPendingPhotoWarning(null);
@@ -191,10 +261,7 @@ export function StationaryScreen() {
     if (!isMockAuthMode()) {
       return;
     }
-    setEventsByUser((currentEventsByUser) => ({
-      ...currentEventsByUser,
-      [user.id]: []
-    }));
+    setEvents([]);
   }
 
   return (
@@ -208,6 +275,7 @@ export function StationaryScreen() {
         <Pill tone={isClockedIn ? 'success' : 'neutral'}>{getStatusLabel(events)}</Pill>
       </header>
       <PlatformNotice />
+      <OfflineSyncNotice {...offlineSync} onSyncNow={() => void offlineSync.syncNow()} />
 
       {!hasAvailableRules ? (
         <article className="status-panel" role={hasRulesError ? 'alert' : 'status'}>
@@ -314,8 +382,8 @@ export function StationaryScreen() {
           <article className="status-panel">
             <div>
               <span className="eyebrow">Next allowed action</span>
-              <strong>{nextAction ? actionLabels[nextAction] : 'Day complete'}</strong>
-              <p>{getNextActionDetail(nextAction)}</p>
+              <strong>{hasFailedEvents ? 'Attendance needs attention' : nextAction ? actionLabels[nextAction] : 'Day complete'}</strong>
+              <p>{hasFailedEvents ? 'Resolve the failed attendance action before recording another action.' : getNextActionDetail(nextAction)}</p>
             </div>
             {isMockAuthMode() ? <button className="text-button" onClick={resetDemoDay}>Reset demo</button> : null}
           </article>
@@ -336,7 +404,7 @@ export function StationaryScreen() {
 
       <div className="metric-grid">
         <MetricCard label="Regular" value={workedLabel} detail={`After ${lunchDeductionLabel} lunch deduction`} tone="indigo" />
-        <MetricCard label="Recorded" value={String(events.length)} detail="Submitted through attendance recorder" tone="success" />
+        <MetricCard label="Recorded" value={String(completedEvents.length)} detail="Submitted through attendance recorder" tone="success" />
       </div>
 
       {assignedLocation ? (
@@ -374,8 +442,8 @@ export function StationaryScreen() {
                 <strong>{event.label}</strong>
                 <p>{event.detail}</p>
               </div>
-              <Pill tone={event.validationStatus === 'flagged' ? 'flag' : event.serverStatus === 'pending' ? 'sync' : 'success'}>
-                {event.validationStatus === 'flagged' ? 'flagged' : event.serverStatus}
+              <Pill tone={isEventFailed(event, offlineSync.failedEventIds) ? 'warn' : isEventPending(event, offlineSync.queuedEventIds) ? 'sync' : event.validationStatus === 'flagged' ? 'flag' : 'success'}>
+                {isEventFailed(event, offlineSync.failedEventIds) ? 'needs attention' : isEventPending(event, offlineSync.queuedEventIds) ? 'pending' : event.validationStatus === 'flagged' ? 'flagged' : 'synced'}
               </Pill>
             </div>
           ))}
@@ -397,18 +465,39 @@ async function getGeoCheck(location: Location) {
 
 function getEventDetail(geoCheck: GeoCheckResult, result: AttendanceRecorderResult) {
   if (result.flagTypes.length > 0) {
-    return `${geoCheck.message} Flagged for manager or admin review.`;
+    return `${geoCheck.message} Flags: ${result.flagTypes.map(formatFlagType).join(', ')}. Flagged for manager or admin review.`;
   }
 
   return `${geoCheck.message} Recorded at ${formatLocalTime(result.receivedAtServer)}.`;
 }
 
-function getStorageKey(userId: string) {
-  return `stationary-events:${userId}`;
+function formatFlagType(flagType: AttendanceRecorderResult['flagTypes'][number]) {
+  return flagType.replaceAll('_', ' ');
 }
 
-function readStoredEvents(userId: string): AttendanceEvent[] {
-  const rawValue = window.localStorage.getItem(getStorageKey(userId));
+function isEventPending(event: AttendanceEvent, queuedEventIds: string[]) {
+  return event.serverStatus === 'pending' && queuedEventIds.includes(event.id);
+}
+
+function isEventFailed(event: AttendanceEvent, failedEventIds: string[]) {
+  return event.serverStatus === 'failed' || failedEventIds.includes(event.id);
+}
+
+function applyAcknowledgement(event: AttendanceEvent, result: AttendanceRecorderResult): AttendanceEvent {
+  return {
+    ...event,
+    id: result.eventId,
+    serverStatus: 'synced',
+    validationStatus: result.validationStatus,
+    flagTypes: result.flagTypes,
+    detail: result.flagTypes.length
+      ? `Synced. Flags: ${result.flagTypes.map(formatFlagType).join(', ')}. Flagged for manager or admin review.`
+      : `Synced at ${formatLocalTime(result.receivedAtServer)}.`
+  };
+}
+
+function readLegacyStoredEvents(userId: string): AttendanceEvent[] {
+  const rawValue = window.localStorage.getItem(`stationary-events:${userId}`);
   if (!rawValue) {
     return [];
   }
@@ -419,6 +508,117 @@ function readStoredEvents(userId: string): AttendanceEvent[] {
   } catch {
     return [];
   }
+}
+
+function rebuildStationaryEvents(
+  pendingEvents: Array<AttendanceRecorderInput & { syncStatus: 'pending' | 'syncing' | 'failed' }>,
+  acknowledgements: Array<{ input: AttendanceRecorderInput; result: AttendanceRecorderResult }>
+): AttendanceEvent[] | null {
+  const stationaryAcknowledgements = acknowledgements.filter((item) => !isRovingEvent(item.input.eventType));
+  const acknowledgedIds = new Set(stationaryAcknowledgements.map((item) => item.input.clientEventId));
+  const stationaryPending = pendingEvents.filter(
+    (event) => !isRovingEvent(event.eventType)
+      && !acknowledgedIds.has(event.clientEventId)
+  );
+  if (stationaryAcknowledgements.length === 0 && stationaryPending.length === 0) {
+    return null;
+  }
+
+  return [
+    ...stationaryAcknowledgements.map(({ input, result }) => ({
+      id: result.eventId,
+      sessionId: result.sessionId,
+      capturedAtLocal: input.capturedAtLocal,
+      workDate: result.workDate,
+      type: input.eventType,
+      label: actionLabels[input.eventType],
+      localTime: formatLocalTime(input.capturedAtLocal),
+      serverStatus: 'synced' as const,
+      locationName: input.locationId,
+      validationStatus: result.validationStatus,
+      flagTypes: result.flagTypes,
+      detail: result.flagTypes.length ? `Synced. Flags: ${result.flagTypes.map(formatFlagType).join(', ')}.` : 'Synced.'
+    })),
+    ...stationaryPending.map((input) => ({
+      id: input.clientEventId,
+      sessionId: input.sessionId ?? input.clientEventId,
+      capturedAtLocal: input.capturedAtLocal,
+      workDate: getWorkDate(input.capturedAtLocal),
+      type: input.eventType,
+      label: actionLabels[input.eventType],
+      localTime: formatLocalTime(input.capturedAtLocal),
+      serverStatus: input.syncStatus === 'failed' ? 'failed' as const : 'pending' as const,
+      locationName: input.locationId,
+      validationStatus: input.offlineDeclared || input.missingPhotoAcknowledged ? 'flagged' as const : 'normal' as const,
+      flagTypes: getProvisionalFlagTypes(input),
+      detail: input.syncStatus === 'failed'
+        ? 'This attendance action needs attention before another action can be recorded.'
+        : 'Saved on this device and waiting to sync.'
+    }))
+  ].sort((left, right) => left.capturedAtLocal.localeCompare(right.capturedAtLocal));
+}
+
+function mergeStationaryEvents(storedEvents: AttendanceEvent[], recoveredEvents: AttendanceEvent[]) {
+  const recoveredByIdentity = new Map(recoveredEvents.map((event) => [getEventIdentity(event), event]));
+  const mergedStoredEvents = storedEvents.map((event) => {
+    const recovered = recoveredByIdentity.get(getEventIdentity(event));
+    if (!recovered) {
+      return event;
+    }
+    recoveredByIdentity.delete(getEventIdentity(event));
+    return recovered;
+  });
+  return getCurrentStationarySessionEvents([...mergedStoredEvents, ...recoveredByIdentity.values()])
+    .sort((left, right) => left.capturedAtLocal.localeCompare(right.capturedAtLocal));
+}
+
+function getEventIdentity(event: AttendanceEvent) {
+  return `${event.sessionId}:${event.type}:${event.capturedAtLocal}`;
+}
+
+function getCurrentStationarySessionEvents(events: AttendanceEvent[]) {
+  const today = getWorkDate(new Date().toISOString());
+  const eventsBySession = new Map<string, AttendanceEvent[]>();
+  for (const event of events) {
+    eventsBySession.set(event.sessionId, [...(eventsBySession.get(event.sessionId) ?? []), event]);
+  }
+  const eligibleSessions = [...eventsBySession.values()].flatMap((sessionEvents) => {
+    const timeIn = sessionEvents.find((event) => event.type === 'time_in');
+    const workDate = timeIn?.workDate ?? (timeIn ? getWorkDate(timeIn.capturedAtLocal) : undefined);
+    const isOpen = !sessionEvents.some((event) => event.type === 'time_out' && event.serverStatus !== 'failed');
+    return workDate === today || isOpen ? [{ sessionEvents, workDate, isOpen }] : [];
+  });
+  const selected = eligibleSessions
+    .sort((left, right) => {
+      // An unfinished session must be resolved before a newer day can accept another action.
+      const leftPriority = left.isOpen ? 1 : left.workDate === today ? 0 : -1;
+      const rightPriority = right.isOpen ? 1 : right.workDate === today ? 0 : -1;
+      if (leftPriority !== rightPriority) {
+        return rightPriority - leftPriority;
+      }
+      return left.sessionEvents[0].capturedAtLocal.localeCompare(right.sessionEvents[0].capturedAtLocal);
+    })
+    .at(0);
+  return selected?.sessionEvents ?? [];
+}
+
+function getWorkDate(timestamp: string) {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Manila' }).format(new Date(timestamp));
+}
+
+function isRovingEvent(eventType: AttendanceEventType) {
+  return eventType === 'visit_in' || eventType === 'visit_out';
+}
+
+function getProvisionalFlagTypes(input: AttendanceRecorderInput) {
+  const flagTypes: AttendanceRecorderResult['flagTypes'] = [];
+  if (input.offlineDeclared) {
+    flagTypes.push('offline_submission');
+  }
+  if (isPhotoRequired(input.eventType) && !input.photoPath?.trim()) {
+    flagTypes.push('missing_photo');
+  }
+  return flagTypes;
 }
 
 function formatLocalTime(isoDate: string) {
@@ -438,15 +638,16 @@ function getNowLabel() {
 }
 
 function getStatusLabel(events: AttendanceEvent[]) {
-  if (events.some((event) => event.type === 'time_out')) {
+  const completedEvents = events.filter((event) => event.serverStatus !== 'failed');
+  if (completedEvents.some((event) => event.type === 'time_out')) {
     return 'Timed out';
   }
 
-  if (events.some((event) => event.type === 'lunch_out') && !events.some((event) => event.type === 'lunch_in')) {
+  if (completedEvents.some((event) => event.type === 'lunch_out') && !completedEvents.some((event) => event.type === 'lunch_in')) {
     return 'On lunch';
   }
 
-  if (events.some((event) => event.type === 'time_in')) {
+  if (completedEvents.some((event) => event.type === 'time_in')) {
     return 'Timed in';
   }
 
@@ -474,8 +675,9 @@ function getNextActionDetail(nextAction: AttendanceEventType | undefined) {
 }
 
 function getWorkedLabel(events: AttendanceEvent[], lunchDeductionMinutes: number) {
-  const timeIn = events.find((event) => event.type === 'time_in');
-  const timeOut = events.find((event) => event.type === 'time_out');
+  const completedEvents = events.filter((event) => event.serverStatus !== 'failed');
+  const timeIn = completedEvents.find((event) => event.type === 'time_in');
+  const timeOut = completedEvents.find((event) => event.type === 'time_out');
 
   if (!timeIn) {
     return '0h 00m';
@@ -484,7 +686,7 @@ function getWorkedLabel(events: AttendanceEvent[], lunchDeductionMinutes: number
   const end = timeOut ? new Date(timeOut.capturedAtLocal) : new Date();
   const start = new Date(timeIn.capturedAtLocal);
   const diffMinutes = Math.max(0, Math.floor((end.getTime() - start.getTime()) / 60000));
-  const payableMinutes = events.some((event) => event.type === 'lunch_out')
+  const payableMinutes = completedEvents.some((event) => event.type === 'lunch_out')
     ? Math.max(0, diffMinutes - lunchDeductionMinutes)
     : diffMinutes;
 

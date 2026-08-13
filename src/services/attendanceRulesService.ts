@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabaseClient';
+import { cacheAttendanceRules, getCachedAttendanceRules } from '../offline/offlineQueue';
 import type { ServiceResult } from './serviceResult';
 import { failure, success } from './serviceResult';
 
@@ -43,7 +44,7 @@ export async function getAttendanceRules(): Promise<ServiceResult<AttendanceRule
   }
 
   if (!supabase) {
-    return failure('Supabase environment variables are not configured.');
+    return getOfflineRules();
   }
 
   const today = getManilaDateString();
@@ -54,7 +55,7 @@ export async function getAttendanceRules(): Promise<ServiceResult<AttendanceRule
     .or(`effective_to.is.null,effective_to.gte.${today}`);
 
   if (error) {
-    return failure(error.message);
+    return getOfflineRules(error.message);
   }
 
   const rulesResult = normalizeAttendanceRules(data ?? []);
@@ -67,8 +68,24 @@ export async function getAttendanceRules(): Promise<ServiceResult<AttendanceRule
     rules,
     expiresAt: Date.now() + attendanceRulesCacheTtlMs
   };
+  await cacheAttendanceRules(rules);
 
   return success(rules);
+}
+
+async function getOfflineRules(errorMessage?: string): Promise<ServiceResult<AttendanceRules>> {
+  if (!navigator.onLine || isTransportFailure(errorMessage)) {
+    const cachedOfflineRules = await getCachedAttendanceRules();
+    if (cachedOfflineRules) {
+      return success(cachedOfflineRules);
+    }
+  }
+
+  return failure('Attendance rules are unavailable.');
+}
+
+function isTransportFailure(errorMessage?: string) {
+  return Boolean(errorMessage && /network|fetch|timed out|connection/i.test(errorMessage));
 }
 
 export async function getRule(ruleKey: AttendanceRuleKey): Promise<ServiceResult<number>> {

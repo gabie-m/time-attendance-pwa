@@ -8,6 +8,11 @@ import type { User as SupabaseUser } from '@supabase/supabase-js';
 import { AuthContext } from './AuthContext';
 import type { MockUser } from './types';
 import type { AttendanceModel, Role } from '../domain/types';
+import {
+  cacheAuthenticatedProfile,
+  getCachedAuthenticatedProfile,
+  removeCachedAuthenticatedProfile
+} from '../offline/offlineQueue';
 import { supabase } from '../lib/supabaseClient';
 import {
   getSession,
@@ -36,56 +41,98 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [consentError, setConsentError] = useState<string | null>(null);
   const activeRef = useRef(false);
+  const authRequestVersionRef = useRef(0);
+  const currentSessionUserIdRef = useRef<string | null>(null);
 
-  const clearFailedProfileSession = useCallback(async () => {
-    setUser(null);
-    await signOutFromSupabase();
+  const beginAuthenticatedRequest = useCallback((authUser: SupabaseUser) => {
+    const requestVersion = authRequestVersionRef.current + 1;
+    authRequestVersionRef.current = requestVersion;
+    currentSessionUserIdRef.current = authUser.id;
+    return requestVersion;
   }, []);
 
-  const loadUserProfile = useCallback(async (authUser: SupabaseUser) => {
+  const clearActiveSession = useCallback(() => {
+    authRequestVersionRef.current += 1;
+    currentSessionUserIdRef.current = null;
+    setUser(null);
+    setLoading(false);
+  }, []);
+
+  const isCurrentAuthenticatedRequest = useCallback((authUserId: string, requestVersion: number) => {
+    return activeRef.current
+      && authRequestVersionRef.current === requestVersion
+      && currentSessionUserIdRef.current === authUserId;
+  }, []);
+
+  const clearFailedProfileSession = useCallback(async () => {
+    clearActiveSession();
+    await signOutFromSupabase();
+  }, [clearActiveSession]);
+
+  const loadUserProfile = useCallback(async (authUser: SupabaseUser, requestVersion: number) => {
     const profileResult = await fetchAuthenticatedUserProfile(authUser);
 
-    if (!profileResult.success) {
-      await clearFailedProfileSession();
-    }
-
-    if (!activeRef.current) {
+    if (!isCurrentAuthenticatedRequest(authUser.id, requestVersion)) {
       return;
     }
 
+    if (!profileResult.success) {
+      const cachedProfile = await getCachedAuthenticatedProfile(authUser.id);
+      if (cachedProfile && isOfflineProfileFailure(profileResult.error)) {
+        if (isCurrentAuthenticatedRequest(authUser.id, requestVersion)) {
+          setUser(cachedProfile);
+          setLoading(false);
+        }
+        return;
+      }
+      if (!isCurrentAuthenticatedRequest(authUser.id, requestVersion)) {
+        return;
+      }
+      await clearFailedProfileSession();
+    }
+
+    if (!isCurrentAuthenticatedRequest(authUser.id, requestVersion)) {
+      return;
+    }
+
+    if (profileResult.success) {
+      await cacheAuthenticatedProfile(profileResult.data);
+    }
+    if (!isCurrentAuthenticatedRequest(authUser.id, requestVersion)) {
+      return;
+    }
     setUser(profileResult.success ? profileResult.data : null);
     setLoading(false);
-  }, [clearFailedProfileSession]);
+  }, [clearFailedProfileSession, isCurrentAuthenticatedRequest]);
 
   useEffect(() => {
     activeRef.current = true;
 
     async function loadCurrentSession() {
+      const initialRequestVersion = authRequestVersionRef.current;
       const sessionResult = await getSession();
 
-      if (!activeRef.current) {
+      if (!activeRef.current || authRequestVersionRef.current !== initialRequestVersion) {
         return;
       }
 
       if (!sessionResult.success || !sessionResult.data?.user) {
-        setUser(null);
-        setLoading(false);
+        clearActiveSession();
         return;
       }
 
-      await loadUserProfile(sessionResult.data.user);
+      await loadUserProfile(sessionResult.data.user, beginAuthenticatedRequest(sessionResult.data.user));
     }
 
-    const subscriptionResult = onAuthStateChange((session) => {
+    const subscriptionResult = onAuthStateChange((_event, session) => {
       setLoading(true);
 
       if (!session?.user) {
-        setUser(null);
-        setLoading(false);
+        clearActiveSession();
         return;
       }
 
-      void loadUserProfile(session.user);
+      void loadUserProfile(session.user, beginAuthenticatedRequest(session.user));
     });
 
     void loadCurrentSession();
@@ -97,7 +144,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         subscriptionResult.data.unsubscribe();
       }
     };
-  }, [loadUserProfile]);
+  }, [beginAuthenticatedRequest, clearActiveSession, loadUserProfile]);
 
   const value = useMemo(() => {
     return {
@@ -115,23 +162,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           return failure<MockUser>('Sign in completed without an authenticated session.');
         }
 
+        const requestVersion = beginAuthenticatedRequest(sessionResult.data.user);
         const profileResult = await fetchAuthenticatedUserProfile(sessionResult.data.user);
+
+        if (!isCurrentAuthenticatedRequest(sessionResult.data.user.id, requestVersion)) {
+          return failure<MockUser>('Your sign-in session changed before your profile could be loaded. Please sign in again.');
+        }
 
         if (profileResult.success) {
           setUser(profileResult.data);
+          await cacheAuthenticatedProfile(profileResult.data);
           return profileResult;
         }
 
+        if (!isCurrentAuthenticatedRequest(sessionResult.data.user.id, requestVersion)) {
+          return failure<MockUser>('Your sign-in session changed before your profile could be loaded. Please sign in again.');
+        }
         await clearFailedProfileSession();
         return profileResult;
       },
       signOut: async () => {
+        clearActiveSession();
         const result = await signOutFromSupabase();
 
-        if (result.success) {
-          setUser(null);
+        if (user) {
+          await removeCachedAuthenticatedProfile(user.id);
         }
-
         return result;
       },
       setUserId: () => {
@@ -164,17 +220,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           if (!currentUser) {
             return currentUser;
           }
-
-          return {
+          const nextUser = {
             ...currentUser,
             locationConsentGivenAt: data
           };
+          void cacheAuthenticatedProfile(nextUser);
+          return nextUser;
         });
 
         return success<null>(null);
       }
     };
-  }, [clearFailedProfileSession, consentError, loading, user]);
+  }, [beginAuthenticatedRequest, clearActiveSession, clearFailedProfileSession, consentError, isCurrentAuthenticatedRequest, loading, user]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
@@ -239,4 +296,8 @@ function normalizeRole(role: Role | null): Role {
 
 function normalizeAttendanceModel(attendanceModel: AttendanceModel | null | undefined): AttendanceModel {
   return attendanceModel === 'roving' ? 'roving' : 'stationary';
+}
+
+function isOfflineProfileFailure(error: string) {
+  return !navigator.onLine || /network|fetch|timed out|connection/i.test(error);
 }
