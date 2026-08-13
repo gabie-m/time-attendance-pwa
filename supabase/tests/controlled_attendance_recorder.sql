@@ -2,7 +2,7 @@ BEGIN;
 
 CREATE EXTENSION IF NOT EXISTS pgtap;
 
-SELECT plan(50);
+SELECT plan(51);
 
 UPDATE public.attendance_rules
 SET effective_from = CURRENT_DATE - 30;
@@ -520,6 +520,22 @@ SELECT ok(
     )
   ),
   'an identical client event retry is idempotent'
+);
+
+SELECT is(
+  (
+    SELECT recorded_client_event_id
+    FROM public.record_attendance_event_acknowledged(
+      p_client_event_id => '00000000-0000-0000-0000-000000000301',
+      p_event_type => 'time_in',
+      p_captured_at_local => now(),
+      p_location_id => '00000000-0000-0000-0000-000000000202',
+      p_gps_warning_acknowledged => true,
+      p_missing_photo_acknowledged => true
+    )
+  ),
+  '00000000-0000-0000-0000-000000000301'::uuid,
+  'the acknowledgement wrapper echoes the exact client event id'
 );
 
 SELECT throws_like(

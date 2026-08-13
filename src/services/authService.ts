@@ -1,4 +1,4 @@
-import type { Session } from '@supabase/supabase-js';
+import type { AuthChangeEvent, Session } from '@supabase/supabase-js';
 import { hasSupabaseConfig, supabase } from '../lib/supabaseClient';
 import type { ServiceResult } from './serviceResult';
 import { failure, success } from './serviceResult';
@@ -55,8 +55,24 @@ export async function getSession(): Promise<ServiceResult<Session | null>> {
   return success(data.session);
 }
 
+export async function refreshSession(): Promise<ServiceResult<Session | null>> {
+  const clientResult = getConfiguredSupabase();
+
+  if (!clientResult.success) {
+    return failure(clientResult.error ?? 'Supabase is not configured.');
+  }
+
+  const { data, error } = await clientResult.data.auth.refreshSession();
+
+  if (error) {
+    return failure(error.message);
+  }
+
+  return success(data.session);
+}
+
 export function onAuthStateChange(
-  callback: (session: Session | null) => void
+  callback: (event: AuthChangeEvent, session: Session | null) => void
 ): ServiceResult<AuthStateSubscription> {
   const clientResult = getConfiguredSupabase();
 
@@ -65,7 +81,7 @@ export function onAuthStateChange(
   }
 
   const { data } = clientResult.data.auth.onAuthStateChange((_event, session) => {
-    callback(session);
+    callback(_event, session);
   });
 
   return success({

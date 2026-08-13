@@ -56,6 +56,7 @@ export type AttendanceRecorderInput = {
 };
 
 export type AttendanceRecorderResult = {
+  clientEventId: string;
   eventId: string;
   sessionId: string;
   eventType: AttendanceEventType;
@@ -66,7 +67,7 @@ export type AttendanceRecorderResult = {
   flagTypes: AttendanceFlagType[];
   receivedAtServer: string;
   idempotentReplay: boolean;
-  source: 'mock' | 'supabase';
+  source: 'mock' | 'supabase' | 'offline';
 };
 
 export type Location = {
@@ -83,13 +84,15 @@ export type AttendanceEvent = {
   id: string;
   sessionId: string;
   capturedAtLocal: string;
+  workDate?: string;
   type: AttendanceEventType;
   label: string;
   localTime: string;
-  serverStatus: 'synced' | 'pending';
+  serverStatus: 'synced' | 'pending' | 'failed';
   locationName: string;
   distanceMeters?: number;
   validationStatus: ValidationStatus;
+  flagTypes?: AttendanceFlagType[];
   detail: string;
 };
 
@@ -107,6 +110,10 @@ export type Visit = {
   travelFromPrevious: string;
   distanceMeters?: number;
   validationStatus: ValidationStatus;
+  flagTypes?: AttendanceFlagType[];
+  serverStatus?: 'synced' | 'pending' | 'failed';
+  syncEventIds?: string[];
+  syncEventId?: string;
 };
 
 export type ApprovalItem = {

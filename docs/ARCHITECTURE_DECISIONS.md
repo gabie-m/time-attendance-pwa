@@ -183,13 +183,16 @@ When a decision changes, update this document and cross-check the business rules
 
 **Implementation Notes:**
 
-- Offline records preserve local capture time, GPS/location data, device information, and pending sync status.
+- Every attendance action enters the Dexie transactional outbox before immediate server delivery is attempted. The canonical queued payload, including capture evidence, is the exact payload used for the first attempt and every retry.
+- The app retains last-verified attendance rules, permitted locations, and staff-profile data. A cached profile can supplement an already-valid Supabase session when the profile request is offline; it never authenticates a user by itself. The server remains authoritative when the queue replays.
 - Before flushing the queue, the app attempts token refresh.
 - If refresh fails, the user must log in again.
+- The queue replays by a durable enqueue sequence, not device clock time. It deletes a record only after the controlled recorder echoes the exact `clientEventId`; the acknowledgement is retained locally so the UI can reconcile the authoritative flags and status. A failed record remains visible and blocks later queued actions from overtaking it.
+- A server-approved schedule effective for the record work date remains authoritative for expected schedule context, including approved retroactive corrections. It never mutates the queued or persisted raw attendance evidence.
 - UI copy must say: "Offline records sync when you reopen the app with internet."
 - Do not imply automatic background sync on iOS.
 
-**Future Impact:** Phase 4 offline sync must migrate remaining localStorage-like behavior to Dexie where durability matters.
+**Future Impact:** Attendance progression and capture presentation use Dexie. Any future offline workflow must follow the same canonical-payload, ordered-replay, and exact-acknowledgement pattern.
 
 ---
 

@@ -11,6 +11,7 @@ import type { ServiceResult } from './serviceResult';
 import { failure, success } from './serviceResult';
 
 type RecorderRpcRow = {
+  recorded_client_event_id: string;
   recorded_event_id: string;
   recorded_session_id: string;
   recorded_event_type: AttendanceRecorderResult['eventType'];
@@ -21,6 +22,10 @@ type RecorderRpcRow = {
   recorded_flag_types: AttendanceFlagType[];
   recorded_received_at_server: string;
   idempotent_replay: boolean;
+};
+
+export type AttendanceRecorderServiceResult = ServiceResult<AttendanceRecorderResult> & {
+  retryable: boolean;
 };
 
 const knownRecorderRejections = [
@@ -60,23 +65,38 @@ const knownRecorderRejections = [
   'Confirm that no attendance photo is available before submitting.'
 ] as const;
 
+const validValidationStatuses = ['normal', 'warning', 'flagged', 'needs_review', 'overtime_candidate'] as const;
+const validFlagTypes = [
+  'outside_radius',
+  'gps_low_accuracy',
+  'offline_submission',
+  'location_conflict',
+  'missing_punch',
+  'deactivated_user_record',
+  'late_sync',
+  'clock_discrepancy',
+  'early_lunch_return',
+  'photo_time_mismatch',
+  'missing_photo'
+] as const;
+
 export async function recordAttendanceEvent(
   input: AttendanceRecorderInput
-): Promise<ServiceResult<AttendanceRecorderResult>> {
+): Promise<AttendanceRecorderServiceResult> {
   const inputError = getInputError(input);
   if (inputError) {
-    return failure(inputError);
+    return recorderFailure(inputError);
   }
 
   if (isMockAuthMode()) {
-    return success(createMockResult(input));
+    return recorderSuccess(createMockResult(input));
   }
 
   if (!hasSupabaseConfig || !supabase) {
-    return failure('Supabase environment variables are not configured.');
+    return recorderFailure('Supabase environment variables are not configured.');
   }
 
-  const { data, error } = await supabase.rpc('record_attendance_event', {
+  const { data, error } = await supabase.rpc('record_attendance_event_acknowledged', {
     p_client_event_id: input.clientEventId,
     p_event_type: input.eventType,
     p_captured_at_local: input.capturedAtLocal,
@@ -97,15 +117,15 @@ export async function recordAttendanceEvent(
   });
 
   if (error) {
-    return failure(getRecorderErrorMessage(error.message));
+    return recorderFailure(getRecorderErrorMessage(error.message), isConfirmedTransportError(error));
   }
 
-  const row = Array.isArray(data) ? (data[0] as RecorderRpcRow | undefined) : undefined;
-  if (!row) {
-    return failure('Attendance could not be confirmed. Please try again.');
+  const row = Array.isArray(data) ? data[0] : undefined;
+  if (!isValidRecorderRpcRow(row, input)) {
+    return recorderFailure('Attendance recorder returned an invalid acknowledgement and needs attention before another action can be recorded.');
   }
 
-  return success(mapRpcResult(row));
+  return recorderSuccess(mapRpcResult(row));
 }
 
 function getInputError(input: AttendanceRecorderInput) {
@@ -205,6 +225,9 @@ function createMockResult(input: AttendanceRecorderInput): AttendanceRecorderRes
 
   if (input.offlineDeclared) {
     flagTypes.push('offline_submission');
+    if (Date.now() - new Date(input.capturedAtLocal).getTime() > 24 * 60 * 60 * 1000) {
+      flagTypes.push('late_sync');
+    }
   }
 
   if (isPhotoRequired(input.eventType) && !photoPath) {
@@ -214,6 +237,7 @@ function createMockResult(input: AttendanceRecorderInput): AttendanceRecorderRes
   const isClosingAction = input.eventType === 'time_out' || input.eventType === 'visit_out';
 
   return {
+    clientEventId: input.clientEventId,
     eventId: input.clientEventId,
     sessionId,
     eventType: input.eventType,
@@ -230,6 +254,7 @@ function createMockResult(input: AttendanceRecorderInput): AttendanceRecorderRes
 
 function mapRpcResult(row: RecorderRpcRow): AttendanceRecorderResult {
   return {
+    clientEventId: row.recorded_client_event_id,
     eventId: row.recorded_event_id,
     sessionId: row.recorded_session_id,
     eventType: row.recorded_event_type,
@@ -247,8 +272,56 @@ function mapRpcResult(row: RecorderRpcRow): AttendanceRecorderResult {
 function getRecorderErrorMessage(errorMessage: string) {
   return (
     knownRecorderRejections.find((message) => errorMessage.includes(message)) ??
-    'Attendance could not be recorded. Please try again.'
+    'Attendance could not be recorded and needs attention before another action can be recorded.'
   );
+}
+
+export function isConfirmedTransportError(error: unknown) {
+  if (error instanceof Error) {
+    return error.name === 'FetchError' || error.name === 'AbortError';
+  }
+
+  if (!error || typeof error !== 'object') {
+    return false;
+  }
+
+  const candidate = error as { code?: unknown; details?: unknown };
+  return candidate.code === ''
+    && typeof candidate.details === 'string'
+    && /^(FetchError|AbortError|TypeError: fetch failed)/.test(candidate.details);
+}
+
+function recorderSuccess(data: AttendanceRecorderResult): AttendanceRecorderServiceResult {
+  return { ...success(data), retryable: false };
+}
+
+function recorderFailure(error: string, retryable = false): AttendanceRecorderServiceResult {
+  return { ...failure<AttendanceRecorderResult>(error), retryable };
+}
+
+function isValidRecorderRpcRow(row: unknown, input: AttendanceRecorderInput): row is RecorderRpcRow {
+  if (!row || typeof row !== 'object') {
+    return false;
+  }
+
+  const candidate = row as Partial<RecorderRpcRow>;
+  const expectedSessionType = input.eventType === 'visit_in' || input.eventType === 'visit_out'
+    ? 'field_visit'
+    : 'stationary_day';
+  return candidate.recorded_client_event_id === input.clientEventId
+    && isUuid(candidate.recorded_event_id ?? '')
+    && isUuid(candidate.recorded_session_id ?? '')
+    && candidate.recorded_session_id === input.sessionId
+    && candidate.recorded_event_type === input.eventType
+    && candidate.recorded_session_type === expectedSessionType
+    && /^\d{4}-\d{2}-\d{2}$/.test(candidate.recorded_work_date ?? '')
+    && (candidate.recorded_session_status === 'open' || candidate.recorded_session_status === 'closed' || candidate.recorded_session_status === 'needs_review')
+    && validValidationStatuses.some((status) => status === candidate.recorded_validation_status)
+    && Array.isArray(candidate.recorded_flag_types)
+    && candidate.recorded_flag_types.every((flagType) => validFlagTypes.some((validFlagType) => validFlagType === flagType))
+    && typeof candidate.recorded_received_at_server === 'string'
+    && Number.isFinite(Date.parse(candidate.recorded_received_at_server))
+    && typeof candidate.idempotent_replay === 'boolean';
 }
 
 function getLocalDate(timestamp: string) {

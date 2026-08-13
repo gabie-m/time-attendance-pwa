@@ -1,5 +1,6 @@
 import type { Location } from '../domain/types';
 import { supabase } from '../lib/supabaseClient';
+import { cacheAttendanceLocations, getCachedAttendanceLocations } from '../offline/offlineQueue';
 import { listLocations } from './mockLocationService';
 import { listUserLocationAssignments } from './mockStaffService';
 import type { ServiceResult } from './serviceResult';
@@ -21,7 +22,7 @@ export async function getAttendanceLocations(userId: string): Promise<ServiceRes
   }
 
   if (!supabase) {
-    return failure('Attendance locations are unavailable.');
+    return getOfflineLocations(userId);
   }
 
   const { data, error } = await supabase
@@ -31,7 +32,7 @@ export async function getAttendanceLocations(userId: string): Promise<ServiceRes
     .order('name');
 
   if (error) {
-    return failure('Attendance locations are unavailable.');
+    return getOfflineLocations(userId, error.message);
   }
 
   const locations = (data ?? []).map(mapLocation);
@@ -39,7 +40,24 @@ export async function getAttendanceLocations(userId: string): Promise<ServiceRes
     return failure('Attendance locations are unavailable.');
   }
 
-  return success(locations as Location[]);
+  const verifiedLocations = locations as Location[];
+  await cacheAttendanceLocations(userId, verifiedLocations);
+  return success(verifiedLocations);
+}
+
+async function getOfflineLocations(userId: string, errorMessage?: string): Promise<ServiceResult<Location[]>> {
+  if (!navigator.onLine || isTransportFailure(errorMessage)) {
+    const cachedLocations = await getCachedAttendanceLocations(userId);
+    if (cachedLocations) {
+      return success(cachedLocations);
+    }
+  }
+
+  return failure('Attendance locations are unavailable.');
+}
+
+function isTransportFailure(errorMessage?: string) {
+  return Boolean(errorMessage && /network|fetch|timed out|connection/i.test(errorMessage));
 }
 
 function getMockAttendanceLocations(userId: string) {

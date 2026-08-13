@@ -77,7 +77,6 @@ Update this document whenever a deferred item is built, a gap is resolved, or a 
 ### Frontend
 | # | Gap | Where | Notes |
 |---|-----|-------|-------|
-| G-06 | localStorage vs Dexie | `offlineQueue.ts` | Currently scaffolded with local IndexedDB. Must migrate to Dexie before Phase 4 offline sync is built. |
 | G-08 | `googlePlacesService.ts` | `src/services/` | Optional scaffold only. Runs if `VITE_GOOGLE_MAPS_API_KEY` is configured. No hard dependency. Needs proper scoping before backend phase. |
 | G-09 | `MockUser` type still used as auth user type | `src/auth/AuthContext.ts` | Should be replaced with a proper `AuthUser` type once the database schema is complete and all fields are confirmed. |
 | G-10 | `expectedLocation` hardcoded as empty string | `src/auth/AuthProvider.tsx` | Placeholder in `fetchAuthenticatedUserProfile`. Needs to pull from `user_location_assignments` once that table is wired to the frontend. |
@@ -94,6 +93,7 @@ Update this document whenever a deferred item is built, a gap is resolved, or a 
 | G-07 | Real location consent persistence | Resolved by PR #7. Real auth stores consent through `record_location_consent()`; mock mode retains a local fallback. |
 | G-12 | Real-provider consent behavior | Resolved by PR #7. Consent save failures are visible in the shared gate and duplicate submissions are guarded. |
 | G-15 | Controlled attendance recorder not built | Resolved by PR #12. The controlled recorder owns authorized session creation, immutable event creation, idempotency, core validation, and flag creation. Capture-screen integration is delivered by `feature/attendance-capture-integration`; offline queue sync and real history reads remain separate work. |
+| G-06 | Offline queue durability | Resolved by `feature/offline-attendance-sync`, pending merge. Attendance records and last-verified capture setup use Dexie; queued records are retained until controlled-recorder acknowledgement. |
 
 ---
 

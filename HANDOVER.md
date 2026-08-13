@@ -6,7 +6,7 @@ This project is a production-minded MVP for a Time & Attendance Monitoring Syste
 
 ## 2. Approved Architecture Summary
 
-Frontend: React + TypeScript + Vite PWA with React Router. Mock services currently use localStorage and static files under `src/mocks/`; Dexie is present for IndexedDB offline queue scaffolding and must be used for real offline sync before backend integration.
+Frontend: React + TypeScript + Vite PWA with React Router. Mock services currently use localStorage and static files under `src/mocks/`; Dexie provides the durable offline attendance queue and last-verified attendance setup cache.
 
 Backend: Supabase/Postgres is the selected backend foundation. Supabase Auth client integration and the schema foundation are merged. Route guards in the frontend are UX only; real security is enforced through RLS, controlled database functions, API authorization, and role checks. Architecture decisions are tracked in `docs/ARCHITECTURE_DECISIONS.md`.
 
@@ -16,7 +16,7 @@ Hosting plan: practical MVP hosting can use Vercel/Netlify for the frontend PWA 
 
 Auth approach: short-lived JWT access token, 15 minutes. Refresh token duration, 30 days. Add a revocable `refresh_tokens` table with token hashes. Refresh tokens are revoked on device de-registration and user deactivation. Offline events can be captured even if the access token is expired; sync must attempt token refresh before flushing the local queue.
 
-Offline sync strategy: browser IndexedDB through Dexie. Offline attendance records capture action, local timestamp, GPS/location data, device information, and pending sync status. On sync, backend stores original local capture timestamp, official server receive/sync timestamp, and offline flag. iOS Safari does not support Background Sync API, so iOS sync happens only when the user opens the app with internet.
+Offline sync strategy: browser IndexedDB through Dexie. Offline attendance records capture action, local timestamp, GPS/location data, device information, and pending sync status. The app retains the last verified attendance rules and permitted locations for offline capture. On sync, backend stores original local capture timestamp, official server receive/sync timestamp, and offline flag. iOS Safari does not support Background Sync API, so iOS sync happens only when the user opens the app with internet.
 
 Development phases:
 - Phase 1A, frontend shell and role-based attendance flows: substantially complete in mock form.
@@ -24,8 +24,8 @@ Development phases:
 - Phase 1C, manual edit request flow: substantially complete in mock form.
 - Phase 1D, reports, attendance detail, and flag review workflows: substantially complete as static/mock UI; visual cleanup remains on `ui/visual-cleanup`.
 - Phase 2, backend/schema/auth foundation: complete in the repository. The initial migration and hardening migrations are merged and locally validated; hosted Supabase provisioning and deployment are deliberately deferred.
-- Phase 3, attendance API and validation engine: the controlled Supabase recorder, immutable event/session persistence, and core GPS/photo/short-gap validation are complete. `feature/attendance-capture-integration` connects the stationary and roving capture screens to that recorder; offline queue sync and real attendance-history reads remain separate work.
-- Phase 4, offline sync implementation: only IndexedDB queue scaffold exists; full sync not started.
+- Phase 3, attendance API and validation engine: the controlled Supabase recorder, immutable event/session persistence, and core GPS/photo/short-gap validation are complete. `feature/attendance-capture-integration` connects the stationary and roving capture screens to that recorder; real attendance-history reads remain separate work.
+- Phase 4, offline sync implementation: implemented on `feature/offline-attendance-sync`, pending independent review and Product Owner test. Dexie preserves queued records and last-verified setup, replay is ordered and idempotent, and real-mode replay refreshes the auth session first.
 - Phase 5+, notifications, exports, payroll-final reporting, security hardening, background jobs: deferred.
 
 ## 3. All Confirmed Business & System Rules
@@ -67,6 +67,9 @@ Development phases:
 - Suspicious offline records are admin-review only.
 - Offline records should preserve original local timestamp and server sync timestamp.
 - If access token is expired on sync, attempt refresh first; if refresh fails, prompt re-login.
+- Every attendance action is written to the local Dexie outbox before the app attempts server delivery. The local copy is deleted only after the controlled recorder confirms that exact `clientEventId`.
+- A record captured without connectivity is declared as offline when replayed. If an immediate delivery attempt receives no reliable acknowledgement, the outbox replays the original payload unchanged so idempotency remains safe; it remains pending rather than being relabelled as an offline submission. A known server-side rule or permission rejection stays visible as needing attention.
+- If replay fails, preserve the record, show it as needing attention, and stop later records from overtaking it. Browser persistent-storage requests are best-effort; users must not clear browser/app data while records remain pending.
 
 ### Attendance Rules
 
@@ -237,7 +240,7 @@ Current mock default flag workflow settings:
 - Staff/attendance model: `stationary`, `roving`.
 - Location assignment type: `primary`, `allowed`, `temporary`.
 - Attendance event validation status: `normal`, `warning`, `flagged`, `needs_review`, `overtime_candidate`.
-- Attendance flag types include: `outside_radius`, `gps_low_accuracy`, `offline_submission`, `location_conflict`, `missing_punch`, `deactivated_user_record`, `late_sync`, `clock_discrepancy`, `early_lunch_return`.
+- Attendance flag types include: `outside_radius`, `gps_low_accuracy`, `offline_submission`, `location_conflict`, `missing_punch`, `deactivated_user_record`, `late_sync`, `clock_discrepancy`, `early_lunch_return`, `photo_time_mismatch`, and `missing_photo`.
 - Flag severity: `warning`, `high`.
 - Flag status: `open`, `reviewed`, `resolved`.
 - Manual request types: `missed_punch`, `incorrect_time`, `missed_visit`, `sync_issue`, `other`.
@@ -291,7 +294,7 @@ Current development instructions:
 - Keep mock mode fully functional without Supabase credentials.
 - Real Supabase features must remain behind environment configuration until schema and deployment configuration are ready.
 - Keep mock data shaped close to intended database schema.
-- Services can use localStorage for current mock flows; Dexie is reserved for real offline sync queue and should replace localStorage where offline durability matters.
+- Attendance capture state, queue records, acknowledgements, and offline setup caches use Dexie. Mock-only screens may use localStorage only where the state is not part of an offline or audit-critical workflow.
 - No screen should define seed data inline; mock seed data belongs under `src/mocks/`.
 - Settings and services should be framework-agnostic; React hooks belong under `src/hooks/`.
 - Admin setting configuration belongs in Admin setup, not inside daily review flows.
@@ -315,7 +318,8 @@ Remaining in current phase:
 - Shared auth still uses `MockUser`; replace it with a production `AuthUser` once the final database shape is merged.
 - Real auth currently leaves `expectedLocation` empty and carries a mock-style `users` array; clean these up when location assignments are wired.
 - Attendance sessions are intentionally not directly writable by authenticated clients. The controlled attendance recorder now creates sessions and immutable events together; all future capture paths must use it.
-- Full offline sync is not implemented; only Dexie queue scaffolding exists.
+- Offline sync has a durable Dexie queue, last-verified rules/location cache, ordered replay, and explicit pending/failed UI. It still requires Product Owner offline-device testing and independent security review before merge.
+- A queued attendance action preserves unchanged raw capture evidence until acknowledgement. Admin-approved schedule corrections can change only the audited expected-schedule context for the record’s work date; they never modify the captured action, timestamp, location, or offline evidence.
 - Background sync on iOS is unsupported; UX must continue to be explicit.
 - Google Places address search is scaffolded but requires `VITE_GOOGLE_MAPS_API_KEY`.
 - Embedded Google Map previews require an API key; fallback should use `https://www.google.com/maps?q=lat,lng`.
@@ -377,7 +381,7 @@ Remaining in current phase:
 - `src/hooks/useFlagReviewRecords.ts`: React hook for localStorage-backed flag review records/actions.
 - `src/hooks/useFlagReviewWorkflowSettings.ts`: React hook for flag workflow settings subscription.
 - `src/hooks/useAttendanceRules.ts`: TanStack Query hook for cached attendance rules.
-- `src/offline/offlineQueue.ts`: Dexie IndexedDB pending attendance event queue scaffold.
+- `src/offline/offlineQueue.ts`: Dexie IndexedDB attendance queue plus last-verified attendance-rules and location cache.
 - `src/utils/geo.ts`: distance/GPS helper logic.
 - `src/utils/flagReviewWorkflow.ts`: shared workflow labels/copy and formatting helpers.
 
