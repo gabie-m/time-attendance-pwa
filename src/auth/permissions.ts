@@ -17,6 +17,10 @@ export function canAccessRoute(user: MockUser, route: string) {
     return user.role === 'user' || user.role === 'manager';
   }
 
+  if (route === '/history') {
+    return user.role === 'user' || user.role === 'manager';
+  }
+
   if (route === '/stationary') {
     return user.attendanceModel === 'stationary' && user.role !== 'admin';
   }

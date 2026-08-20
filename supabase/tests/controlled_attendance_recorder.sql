@@ -2,7 +2,7 @@ BEGIN;
 
 CREATE EXTENSION IF NOT EXISTS pgtap;
 
-SELECT plan(51);
+SELECT plan(56);
 
 UPDATE public.attendance_rules
 SET effective_from = CURRENT_DATE - 30;
@@ -46,6 +46,14 @@ INSERT INTO auth.users (
     'authenticated',
     now(),
     now()
+  ),
+  (
+    '00000000-0000-0000-0000-000000000105',
+    'history-review-manager-test@example.com',
+    'authenticated',
+    'authenticated',
+    now(),
+    now()
   );
 
 INSERT INTO public.users (
@@ -85,6 +93,14 @@ INSERT INTO public.users (
     'No Profile Recorder Test',
     'no-profile-recorder-test@example.com',
     'user',
+    true,
+    now()
+  ),
+  (
+    '00000000-0000-0000-0000-000000000105',
+    'History Review Manager Test',
+    'history-review-manager-test@example.com',
+    'manager',
     true,
     now()
   );
@@ -307,6 +323,10 @@ SELECT set_config(
   true
 );
 
+-- Employee direct SELECT is intentionally removed. The remaining recorder
+-- assertions inspect immutable raw evidence as the test owner.
+RESET ROLE;
+
 SELECT throws_like(
   $$
     SELECT *
@@ -505,6 +525,113 @@ SELECT ok(
       AND (workflow_mode IS NULL OR workflow_effective_from IS NULL)
   ),
   'all recorder flags receive workflow snapshots'
+);
+
+SELECT is(
+  public.get_my_attendance_history(30) ->> 'userId',
+  auth.uid()::text,
+  'employee history is always scoped to the authenticated user'
+);
+
+SELECT ok(
+  NOT (
+    public.get_my_attendance_history(30) #> '{days,0,sessions,0,events,0}'
+    ?| ARRAY['latitude', 'longitude', 'photo_path', 'photoPath', 'validation_evidence', 'validationEvidence']
+  ),
+  'employee history omits precise GPS, photo paths, and validation evidence'
+);
+
+SET LOCAL ROLE authenticated;
+SELECT is(
+  (
+    SELECT count(*)
+    FROM public.attendance_events
+    WHERE user_id = auth.uid()
+  ),
+  0::bigint,
+  'employees cannot directly select their raw attendance events'
+);
+RESET ROLE;
+
+INSERT INTO public.attendance_sessions (
+  id,
+  user_id,
+  session_type,
+  work_date,
+  status
+) VALUES (
+  '00000000-0000-0000-0000-000000000601',
+  '00000000-0000-0000-0000-000000000104',
+  'field_visit',
+  CURRENT_DATE,
+  'needs_review'
+);
+
+INSERT INTO public.manager_staff_assignments (
+  manager_id,
+  staff_user_id,
+  effective_from
+) VALUES (
+  '00000000-0000-0000-0000-000000000105',
+  '00000000-0000-0000-0000-000000000104',
+  CURRENT_DATE - 1
+);
+
+INSERT INTO public.attendance_flags (
+  id,
+  session_id,
+  user_id,
+  flag_type,
+  severity
+) VALUES (
+  '00000000-0000-0000-0000-000000000701',
+  '00000000-0000-0000-0000-000000000601',
+  '00000000-0000-0000-0000-000000000104',
+  'missing_photo',
+  'warning'
+);
+
+SELECT set_config(
+  'request.jwt.claim.sub',
+  '00000000-0000-0000-0000-000000000105',
+  true
+);
+
+INSERT INTO public.attendance_flag_reviews (
+  attendance_flag_id,
+  actor_user_id,
+  stage,
+  decision,
+  remarks
+) VALUES (
+  '00000000-0000-0000-0000-000000000701',
+  '00000000-0000-0000-0000-000000000105',
+  'manager',
+  'resolved',
+  'Resolved for employee-history status test.'
+);
+
+SELECT set_config(
+  'request.jwt.claim.sub',
+  '00000000-0000-0000-0000-000000000104',
+  true
+);
+
+SELECT is(
+  public.get_my_attendance_history(30) #>> '{days,0,outcome}',
+  'resolved',
+  'a final resolved flag changes the current day outcome without rewriting the session'
+);
+
+SELECT ok(
+  NOT (public.get_my_attendance_history(30) #>> '{days,0,requiresReview}')::boolean,
+  'a resolved-only day is not shown as awaiting review'
+);
+
+SELECT set_config(
+  'request.jwt.claim.sub',
+  '00000000-0000-0000-0000-000000000101',
+  true
 );
 
 SELECT ok(
@@ -733,6 +860,7 @@ SELECT set_config(
   '00000000-0000-0000-0000-000000000102',
   true
 );
+RESET ROLE;
 
 SELECT throws_like(
   $$
@@ -977,6 +1105,7 @@ SELECT set_config(
   '00000000-0000-0000-0000-000000000102',
   true
 );
+RESET ROLE;
 
 SELECT lives_ok(
   $$

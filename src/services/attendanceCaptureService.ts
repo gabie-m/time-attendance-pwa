@@ -33,11 +33,19 @@ export type AttendanceSyncResult = OfflineQueueSummary & {
 };
 
 const syncsInProgress = new Map<string, Promise<ServiceResult<AttendanceSyncResult>>>();
+const capturesInProgress = new Set<string>();
 
 export async function captureAttendanceEvent(
   userId: string,
   input: AttendanceRecorderInput
 ): Promise<ServiceResult<AttendanceCaptureResult>> {
+  if (capturesInProgress.has(userId)) {
+    return failure('An attendance action is already being saved. Please wait for it to finish.');
+  }
+
+  capturesInProgress.add(userId);
+
+  try {
   const preparedInput = ensureStarterSessionId(input);
   const isOfflineAtCapture = !navigator.onLine;
   let queuedEvent: PendingAttendanceEvent;
@@ -84,6 +92,9 @@ export async function captureAttendanceEvent(
     record: createQueuedRecord(toRecorderInput(queuedEvent)),
     delivery: 'queued'
   });
+  } finally {
+    capturesInProgress.delete(userId);
+  }
 }
 
 export function syncQueuedAttendanceEvents(

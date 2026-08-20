@@ -497,6 +497,18 @@ users/{user_id}/{work_date}/{session_id}/{client_event_id}.jpg
 
 ---
 
+## ADR-024: Employee attendance history uses a safe, 30-day read model
+
+**Decision:** Employee attendance history defaults to the last 30 calendar days. The database returns a signed-in employee's own sessions, actions, offline status, plain-language flag type, and outcome only. It excludes locations, precise GPS coordinates, photo paths and metadata, raw evidence, internal validation values, reviewer identities, and remarks.
+
+**Rationale:** Employees need clear feedback to improve attendance capture, while detailed validation and reviewer information must not expose internal controls or create a way to work around them.
+
+**Implementation Notes:** `needs_review` remains visible until an approval, resolution, or rejection is recorded. `Resolved` is distinct from `Valid for reporting`; it closes the review issue without implying payroll/reporting approval. `pre_approved` is not a final employee outcome. A day derives its current outcome in this order: `Needs review`, `Rejected`, `Resolved`, `Valid for reporting`, then `Recorded` when it has no flags. The derived outcome does not overwrite the session's audit status or any immutable event. The `get_my_attendance_history` security-definer RPC derives the employee from `auth.uid()` and is the only employee self-service read path; direct employee table policies are removed.
+
+**Future Impact:** Manager and admin history views may expose additional authorized detail through separate role-aware read models. They must not reuse the employee-safe payload as a substitute for reviewer data.
+
+---
+
 ## Deferred Decisions Still Tracked Elsewhere
 
 These remain in `docs/DEFERRED_ITEMS.md` because they are not final implementation decisions yet:

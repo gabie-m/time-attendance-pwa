@@ -36,6 +36,25 @@ export type OfflineQueueState = OfflineQueueSummary & {
   legacyRecordCount: number;
 };
 
+export type MockAttendanceResetState = {
+  isRecording: boolean;
+  isResetting: boolean;
+  isSyncing: boolean;
+  syncingCount: number;
+};
+
+export function createAttendancePresentationLoadGuard() {
+  let version = 0;
+
+  return {
+    startLoad: () => version,
+    invalidate: () => {
+      version += 1;
+    },
+    isCurrent: (loadVersion: number) => loadVersion === version
+  };
+}
+
 type AttendanceSetupCacheRecord = {
   id: string;
   value: AttendanceRules | Location[];
@@ -83,6 +102,11 @@ type AuthMetadataRecord = {
   userId: string;
 };
 
+type MockDemoResetRecord = {
+  userId: string;
+  resetAtLocal: string;
+};
+
 class AttendanceOfflineDb extends Dexie {
   pendingEvents!: Table<PendingAttendanceEvent, string>;
   attendanceSetup!: Table<AttendanceSetupCacheRecord, string>;
@@ -91,6 +115,7 @@ class AttendanceOfflineDb extends Dexie {
   attendancePresentation!: Table<AttendancePresentationRecord, string>;
   authProfiles!: Table<AuthProfileCacheRecord, string>;
   authMetadata!: Table<AuthMetadataRecord, 'last-authenticated-user'>;
+  mockDemoResets!: Table<MockDemoResetRecord, string>;
 
   constructor() {
     super('attendance_offline_queue');
@@ -157,6 +182,16 @@ class AttendanceOfflineDb extends Dexie {
       attendancePresentation: '&userId, updatedAtLocal',
       authProfiles: '&userId, verifiedAtLocal',
       authMetadata: '&id'
+    });
+    this.version(9).stores({
+      pendingEvents: '&clientEventId, userId, syncStatus, [userId+syncStatus], outboxSequence, [userId+outboxSequence], capturedAtLocal, sessionId',
+      attendanceSetup: '&id, verifiedAtLocal',
+      outboxMetadata: '&id',
+      recordedAcknowledgements: '&clientEventId, userId, acknowledgedAtLocal',
+      attendancePresentation: '&userId, updatedAtLocal',
+      authProfiles: '&userId, verifiedAtLocal',
+      authMetadata: '&id',
+      mockDemoResets: '&userId, resetAtLocal'
     });
   }
 }
@@ -314,6 +349,31 @@ export async function getAttendanceAcknowledgement(userId: string, clientEventId
 export async function getAttendanceAcknowledgements(userId: string) {
   return (await offlineDb.recordedAcknowledgements.where('userId').equals(userId).toArray())
     .sort((left, right) => left.acknowledgedAtLocal.localeCompare(right.acknowledgedAtLocal));
+}
+
+export async function clearMockAttendanceRecords(userId: string) {
+  await offlineDb.transaction(
+    'rw',
+    offlineDb.pendingEvents,
+    offlineDb.recordedAcknowledgements,
+    offlineDb.attendancePresentation,
+    offlineDb.mockDemoResets,
+    async () => {
+      await offlineDb.pendingEvents.where('userId').equals(userId).delete();
+      await offlineDb.recordedAcknowledgements.where('userId').equals(userId).delete();
+      await offlineDb.attendancePresentation.delete(userId);
+      await offlineDb.mockDemoResets.put({ userId, resetAtLocal: new Date().toISOString() });
+    }
+  );
+  notifyOfflineQueueChanged();
+}
+
+export function canResetMockAttendanceRecords(state: MockAttendanceResetState) {
+  return !state.isRecording && !state.isResetting && !state.isSyncing && state.syncingCount === 0;
+}
+
+export async function hasMockAttendanceReset(userId: string) {
+  return Boolean(await offlineDb.mockDemoResets.get(userId));
 }
 
 export async function getStationaryAttendancePresentation(userId: string) {

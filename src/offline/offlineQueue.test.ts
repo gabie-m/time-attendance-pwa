@@ -4,10 +4,15 @@ import type { AttendanceRecorderInput, AttendanceRecorderResult } from '../domai
 import { isConfirmedTransportError } from '../services/attendanceRecorderService';
 import {
   acknowledgeAttendanceEvent,
+  canResetMockAttendanceRecords,
+  clearMockAttendanceRecords,
+  createAttendancePresentationLoadGuard,
   getAttendanceAcknowledgement,
+  getAttendanceAcknowledgements,
   getPendingAttendanceEvents,
   markAttendanceEventDeliveryDeferred,
   markAttendanceEventSyncing,
+  hasMockAttendanceReset,
   offlineDb,
   queueAttendanceEvent,
   recoverInterruptedAttendanceSyncs
@@ -71,6 +76,55 @@ describe('offline attendance outbox', () => {
 
     const [recovered] = await getPendingAttendanceEvents(userId);
     expect(recovered.syncStatus).toBe('pending');
+  });
+
+  it('clears a mock user’s queued and acknowledged attendance records for demo reset', async () => {
+    const queued = await queueAttendanceEvent(userId, makeInput('00000000-0000-0000-0000-000000000006'));
+    await acknowledgeAttendanceEvent(userId, queued.clientEventId, makeResult(queued.clientEventId));
+    await queueAttendanceEvent(userId, makeInput('00000000-0000-0000-0000-000000000007'));
+
+    await clearMockAttendanceRecords(userId);
+
+    expect(await getAttendanceAcknowledgements(userId)).toEqual([]);
+    expect(await getPendingAttendanceEvents(userId)).toEqual([]);
+    await expect(hasMockAttendanceReset(userId)).resolves.toBe(true);
+  });
+
+  it('only enables demo reset when no capture or sync is in progress', () => {
+    expect(canResetMockAttendanceRecords({
+      isRecording: false,
+      isResetting: false,
+      isSyncing: false,
+      syncingCount: 0
+    })).toBe(true);
+    expect(canResetMockAttendanceRecords({
+      isRecording: true,
+      isResetting: false,
+      isSyncing: false,
+      syncingCount: 0
+    })).toBe(false);
+    expect(canResetMockAttendanceRecords({
+      isRecording: false,
+      isResetting: false,
+      isSyncing: true,
+      syncingCount: 0
+    })).toBe(false);
+    expect(canResetMockAttendanceRecords({
+      isRecording: false,
+      isResetting: false,
+      isSyncing: false,
+      syncingCount: 1
+    })).toBe(false);
+  });
+
+  it('ignores a presentation load that completes after reset invalidates it', () => {
+    const guard = createAttendancePresentationLoadGuard();
+    const preResetLoad = guard.startLoad();
+
+    guard.invalidate();
+
+    expect(guard.isCurrent(preResetLoad)).toBe(false);
+    expect(guard.isCurrent(guard.startLoad())).toBe(true);
   });
 
   it('retries only confirmed transport errors', () => {

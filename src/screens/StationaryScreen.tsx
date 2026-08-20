@@ -25,10 +25,14 @@ import {
   getAttendanceAcknowledgements,
   getQueuedAttendanceEventsForPresentation,
   getStationaryAttendancePresentation,
+  canResetMockAttendanceRecords,
+  clearMockAttendanceRecords,
+  createAttendancePresentationLoadGuard,
   saveStationaryAttendancePresentation
 } from '../offline/offlineQueue';
 import { getAttendanceRuleValue } from '../services/attendanceRulesService';
 import { captureAttendanceEvent } from '../services/attendanceCaptureService';
+import { mergeStationaryEvents } from '../services/stationaryPresentationService';
 import {
   checkCurrentPositionAgainstLocation,
   getGpsUnavailableResult,
@@ -67,6 +71,7 @@ export function StationaryScreen() {
     refetch: refetchAttendanceRules
   } = useAttendanceRules();
   const [isRecording, setIsRecording] = useState(false);
+  const [isResettingDemo, setIsResettingDemo] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [pendingLocationWarning, setPendingLocationWarning] = useState<{
     action: AttendanceEventType;
@@ -86,6 +91,7 @@ export function StationaryScreen() {
   } | null>(null);
   const [events, setEvents] = useState<AttendanceEvent[]>([]);
   const [presentationUserId, setPresentationUserId] = useState<string | null>(null);
+  const [presentationLoadGuard] = useState(createAttendancePresentationLoadGuard);
   const isPresentationLoaded = presentationUserId === user.id;
   const queueStateKey = `${offlineSync.failedEventIds.join(',')}:${offlineSync.queuedEventIds.join(',')}`;
   const assignedLocation = useMemo(() => {
@@ -94,12 +100,13 @@ export function StationaryScreen() {
 
   useEffect(() => {
     let active = true;
+    const loadVersion = presentationLoadGuard.startLoad();
     void Promise.all([
       getStationaryAttendancePresentation(user.id),
       getQueuedAttendanceEventsForPresentation(user.id),
       getAttendanceAcknowledgements(user.id)
     ]).then(([storedEvents, pendingEvents, acknowledgements]) => {
-      if (active) {
+      if (active && presentationLoadGuard.isCurrent(loadVersion)) {
         setEvents(mergeStationaryEvents(
           storedEvents ?? readLegacyStoredEvents(user.id),
           rebuildStationaryEvents(pendingEvents, acknowledgements) ?? []
@@ -110,7 +117,7 @@ export function StationaryScreen() {
     return () => {
       active = false;
     };
-  }, [queueStateKey, user.id]);
+  }, [presentationLoadGuard, queueStateKey, user.id]);
 
   useEffect(() => {
     if (isPresentationLoaded) {
@@ -251,17 +258,29 @@ export function StationaryScreen() {
       detail: getEventDetail(geoCheck, result.data.record)
     };
 
-    setEvents((currentEvents) => [...currentEvents, nextEvent]);
+    setEvents((currentEvents) => mergeStationaryEvents(currentEvents, [nextEvent]));
     setPendingLocationWarning(null);
     setPendingTimeGapWarning(null);
     setPendingPhotoWarning(null);
   }
 
-  function resetDemoDay() {
-    if (!isMockAuthMode()) {
+  async function resetDemoDay() {
+    if (!isMockAuthMode() || !canResetMockAttendanceRecords({
+      isRecording,
+      isResetting: isResettingDemo,
+      isSyncing: offlineSync.isSyncing,
+      syncingCount: offlineSync.syncingCount
+    })) {
       return;
     }
-    setEvents([]);
+    setIsResettingDemo(true);
+    presentationLoadGuard.invalidate();
+    try {
+      await clearMockAttendanceRecords(user.id);
+      setEvents([]);
+    } finally {
+      setIsResettingDemo(false);
+    }
   }
 
   return (
@@ -385,7 +404,20 @@ export function StationaryScreen() {
               <strong>{hasFailedEvents ? 'Attendance needs attention' : nextAction ? actionLabels[nextAction] : 'Day complete'}</strong>
               <p>{hasFailedEvents ? 'Resolve the failed attendance action before recording another action.' : getNextActionDetail(nextAction)}</p>
             </div>
-            {isMockAuthMode() ? <button className="text-button" onClick={resetDemoDay}>Reset demo</button> : null}
+            {isMockAuthMode() ? (
+              <button
+                className="text-button"
+                disabled={!canResetMockAttendanceRecords({
+                  isRecording,
+                  isResetting: isResettingDemo,
+                  isSyncing: offlineSync.isSyncing,
+                  syncingCount: offlineSync.syncingCount
+                })}
+                onClick={() => void resetDemoDay()}
+              >
+                Reset demo
+              </button>
+            ) : null}
           </article>
           <div className="action-grid">
             {stationaryActionOrder.map((action) => (
@@ -558,49 +590,6 @@ function rebuildStationaryEvents(
   ].sort((left, right) => left.capturedAtLocal.localeCompare(right.capturedAtLocal));
 }
 
-function mergeStationaryEvents(storedEvents: AttendanceEvent[], recoveredEvents: AttendanceEvent[]) {
-  const recoveredByIdentity = new Map(recoveredEvents.map((event) => [getEventIdentity(event), event]));
-  const mergedStoredEvents = storedEvents.map((event) => {
-    const recovered = recoveredByIdentity.get(getEventIdentity(event));
-    if (!recovered) {
-      return event;
-    }
-    recoveredByIdentity.delete(getEventIdentity(event));
-    return recovered;
-  });
-  return getCurrentStationarySessionEvents([...mergedStoredEvents, ...recoveredByIdentity.values()])
-    .sort((left, right) => left.capturedAtLocal.localeCompare(right.capturedAtLocal));
-}
-
-function getEventIdentity(event: AttendanceEvent) {
-  return `${event.sessionId}:${event.type}:${event.capturedAtLocal}`;
-}
-
-function getCurrentStationarySessionEvents(events: AttendanceEvent[]) {
-  const today = getWorkDate(new Date().toISOString());
-  const eventsBySession = new Map<string, AttendanceEvent[]>();
-  for (const event of events) {
-    eventsBySession.set(event.sessionId, [...(eventsBySession.get(event.sessionId) ?? []), event]);
-  }
-  const eligibleSessions = [...eventsBySession.values()].flatMap((sessionEvents) => {
-    const timeIn = sessionEvents.find((event) => event.type === 'time_in');
-    const workDate = timeIn?.workDate ?? (timeIn ? getWorkDate(timeIn.capturedAtLocal) : undefined);
-    const isOpen = !sessionEvents.some((event) => event.type === 'time_out' && event.serverStatus !== 'failed');
-    return workDate === today || isOpen ? [{ sessionEvents, workDate, isOpen }] : [];
-  });
-  const selected = eligibleSessions
-    .sort((left, right) => {
-      // An unfinished session must be resolved before a newer day can accept another action.
-      const leftPriority = left.isOpen ? 1 : left.workDate === today ? 0 : -1;
-      const rightPriority = right.isOpen ? 1 : right.workDate === today ? 0 : -1;
-      if (leftPriority !== rightPriority) {
-        return rightPriority - leftPriority;
-      }
-      return left.sessionEvents[0].capturedAtLocal.localeCompare(right.sessionEvents[0].capturedAtLocal);
-    })
-    .at(0);
-  return selected?.sessionEvents ?? [];
-}
 
 function getWorkDate(timestamp: string) {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Manila' }).format(new Date(timestamp));

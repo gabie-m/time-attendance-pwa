@@ -26,6 +26,9 @@ import {
   getAttendanceAcknowledgements,
   getQueuedAttendanceEventsForPresentation,
   getRovingAttendancePresentation,
+  canResetMockAttendanceRecords,
+  clearMockAttendanceRecords,
+  createAttendancePresentationLoadGuard,
   saveRovingAttendancePresentation
 } from '../offline/offlineQueue';
 import { getAttendanceRuleValue } from '../services/attendanceRulesService';
@@ -58,6 +61,7 @@ export function RovingScreen() {
     refetch: refetchAttendanceRules
   } = useAttendanceRules();
   const [isRecording, setIsRecording] = useState(false);
+  const [isResettingDemo, setIsResettingDemo] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [selectedLocationName, setSelectedLocationName] = useState('');
@@ -82,6 +86,7 @@ export function RovingScreen() {
   } | null>(null);
   const [visits, setVisits] = useState<Visit[]>([]);
   const [presentationUserId, setPresentationUserId] = useState<string | null>(null);
+  const [presentationLoadGuard] = useState(createAttendancePresentationLoadGuard);
   const isPresentationLoaded = presentationUserId === user.id;
   const queueStateKey = `${offlineSync.failedEventIds.join(',')}:${offlineSync.queuedEventIds.join(',')}`;
   const hasFailedVisits = offlineSync.legacyRecordCount > 0
@@ -101,12 +106,13 @@ export function RovingScreen() {
 
   useEffect(() => {
     let active = true;
+    const loadVersion = presentationLoadGuard.startLoad();
     void Promise.all([
       getRovingAttendancePresentation(user.id),
       getQueuedAttendanceEventsForPresentation(user.id),
       getAttendanceAcknowledgements(user.id)
     ]).then(([storedVisits, pendingEvents, acknowledgements]) => {
-      if (active) {
+      if (active && presentationLoadGuard.isCurrent(loadVersion)) {
         setVisits(mergeRovingVisits(
           storedVisits ?? readLegacyStoredVisits(user.id),
           rebuildRovingVisits(pendingEvents, acknowledgements) ?? []
@@ -117,7 +123,7 @@ export function RovingScreen() {
     return () => {
       active = false;
     };
-  }, [queueStateKey, user.id]);
+  }, [presentationLoadGuard, queueStateKey, user.id]);
 
   useEffect(() => {
     if (isPresentationLoaded) {
@@ -326,12 +332,24 @@ export function RovingScreen() {
     setPendingPhotoWarning(null);
   }
 
-  function resetDemoDay() {
-    if (!isMockAuthMode()) {
+  async function resetDemoDay() {
+    if (!isMockAuthMode() || !canResetMockAttendanceRecords({
+      isRecording,
+      isResetting: isResettingDemo,
+      isSyncing: offlineSync.isSyncing,
+      syncingCount: offlineSync.syncingCount
+    })) {
       return;
     }
-    setVisits([]);
-    setShowForm(false);
+    setIsResettingDemo(true);
+    presentationLoadGuard.invalidate();
+    try {
+      await clearMockAttendanceRecords(user.id);
+      setVisits([]);
+      setShowForm(false);
+    } finally {
+      setIsResettingDemo(false);
+    }
   }
 
   return (
@@ -462,7 +480,20 @@ export function RovingScreen() {
               <strong>{activeVisit ? 'Visit in progress' : 'Ready for next visit'}</strong>
               <p>{activeVisit ? 'Close your current visit before starting a new one.' : 'Travel gaps are paid but reported separately.'}</p>
             </div>
-            {isMockAuthMode() ? <button className="text-button" onClick={resetDemoDay}>Reset demo</button> : null}
+            {isMockAuthMode() ? (
+              <button
+                className="text-button"
+                disabled={!canResetMockAttendanceRecords({
+                  isRecording,
+                  isResetting: isResettingDemo,
+                  isSyncing: offlineSync.isSyncing,
+                  syncingCount: offlineSync.syncingCount
+                })}
+                onClick={() => void resetDemoDay()}
+              >
+                Reset demo
+              </button>
+            ) : null}
           </article>
 
           {showForm ? (

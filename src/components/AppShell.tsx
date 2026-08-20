@@ -7,6 +7,7 @@ import { Icon } from './Icon';
 const navItems = [
   { to: '/stationary', label: 'My Attendance', icon: 'clock' },
   { to: '/roving', label: 'My Attendance', icon: 'route' },
+  { to: '/history', label: 'History', icon: 'clock' },
   { to: '/requests', label: 'My Requests', icon: 'flag' },
   { to: '/manager', label: 'My Team', icon: 'users' },
   { to: '/manager/flags', label: 'Flag Review', icon: 'flag' },

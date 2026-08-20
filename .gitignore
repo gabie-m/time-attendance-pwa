@@ -11,3 +11,4 @@ pnpm-debug.log*
 *.tsbuildinfo
 pet-runs/
 Clockwise-qr1/
+supabase/.temp/
