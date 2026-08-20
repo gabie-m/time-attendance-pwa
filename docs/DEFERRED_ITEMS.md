@@ -1,6 +1,6 @@
 # Deferred Items, Known Gaps & Future Decisions
 **Project:** Time and Attendance PWA
-**Last Updated:** 2026-07-17
+**Last Updated:** 2026-08-17
 **Maintained by:** Claude (Development Consultant)
 
 ---
@@ -92,8 +92,9 @@ Update this document whenever a deferred item is built, a gap is resolved, or a 
 | G-03 | Manager SELECT policy on users and staff_profiles tables | Resolved by PR #6 through direct-team and active delegated-team RLS policies. |
 | G-07 | Real location consent persistence | Resolved by PR #7. Real auth stores consent through `record_location_consent()`; mock mode retains a local fallback. |
 | G-12 | Real-provider consent behavior | Resolved by PR #7. Consent save failures are visible in the shared gate and duplicate submissions are guarded. |
-| G-15 | Controlled attendance recorder not built | Resolved by PR #12. The controlled recorder owns authorized session creation, immutable event creation, idempotency, core validation, and flag creation. Capture-screen integration is delivered by `feature/attendance-capture-integration`; offline queue sync and real history reads remain separate work. |
-| G-06 | Offline queue durability | Resolved by `feature/offline-attendance-sync`, pending merge. Attendance records and last-verified capture setup use Dexie; queued records are retained until controlled-recorder acknowledgement. |
+| G-15 | Controlled attendance recorder not built | Resolved by PR #12. The controlled recorder owns authorized session creation, immutable event creation, idempotency, core validation, and flag creation. Capture-screen integration, offline queue sync, and employee-safe history use controlled contracts rather than direct client table writes. |
+| G-06 | Offline queue durability | Resolved by PR #14. Attendance records and last-verified capture setup use Dexie; queued records are retained until controlled-recorder acknowledgement. |
+| G-17 | Employee self-service history missing | Resolved by `feature/attendance-history`. A 30-day, employee-safe Supabase RPC binds reads to `auth.uid()`, excludes sensitive evidence, and derives a current day status from final flag outcomes. |
 
 ---
 

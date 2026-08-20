@@ -24,8 +24,8 @@ Development phases:
 - Phase 1C, manual edit request flow: substantially complete in mock form.
 - Phase 1D, reports, attendance detail, and flag review workflows: substantially complete as static/mock UI; visual cleanup remains on `ui/visual-cleanup`.
 - Phase 2, backend/schema/auth foundation: complete in the repository. The initial migration and hardening migrations are merged and locally validated; hosted Supabase provisioning and deployment are deliberately deferred.
-- Phase 3, attendance API and validation engine: the controlled Supabase recorder, immutable event/session persistence, and core GPS/photo/short-gap validation are complete. `feature/attendance-capture-integration` connects the stationary and roving capture screens to that recorder; real attendance-history reads remain separate work.
-- Phase 4, offline sync implementation: implemented on `feature/offline-attendance-sync`, pending independent review and Product Owner test. Dexie preserves queued records and last-verified setup, replay is ordered and idempotent, and real-mode replay refreshes the auth session first.
+- Phase 3, attendance API and validation engine: the controlled Supabase recorder, immutable event/session persistence, core GPS/photo/short-gap validation, and employee-safe attendance-history read model are complete. `feature/attendance-capture-integration` connects the stationary and roving capture screens to that recorder.
+- Phase 4, offline sync implementation: complete and merged. Dexie preserves queued records and last-verified setup, replay is ordered and idempotent, and real-mode replay refreshes the auth session first. Manual offline/reconnect testing and the local 51-check recorder regression suite passed.
 - Phase 5+, notifications, exports, payroll-final reporting, security hardening, background jobs: deferred.
 
 ## 3. All Confirmed Business & System Rules
@@ -310,7 +310,7 @@ Remaining in current phase:
 
 ## 6. Open Decisions & Known Gaps
 
-- No attendance persistence/validation API exists yet.
+- The controlled attendance recorder provides attendance persistence and validation. New attendance features must use its RPC contract rather than direct table writes.
 - Real Supabase Auth is wired but still depends on hosted credentials and provisioned schema/profile data for real-mode testing.
 - The schema foundation and hardening migrations are merged and passed local reset; they have not been deployed to hosted Supabase.
 - Mock auth remains a local-development fallback and is not a production security boundary.
@@ -318,7 +318,9 @@ Remaining in current phase:
 - Shared auth still uses `MockUser`; replace it with a production `AuthUser` once the final database shape is merged.
 - Real auth currently leaves `expectedLocation` empty and carries a mock-style `users` array; clean these up when location assignments are wired.
 - Attendance sessions are intentionally not directly writable by authenticated clients. The controlled attendance recorder now creates sessions and immutable events together; all future capture paths must use it.
-- Offline sync has a durable Dexie queue, last-verified rules/location cache, ordered replay, and explicit pending/failed UI. It still requires Product Owner offline-device testing and independent security review before merge.
+- Offline sync has a durable Dexie queue, last-verified rules/location cache, ordered replay, explicit pending/failed UI, Product Owner offline/reconnect validation, and independent high-risk review.
+- Employee attendance history defaults to the last 30 days. Its database RPC derives the caller from `auth.uid()` and exposes only employee-safe action, offline, flag-reason, and derived-outcome data. Raw GPS, photos, evidence, validation details, locations, and reviewer information remain restricted.
+- A completed day's current status is derived from its final flag outcomes without mutating its session or events: pending review takes priority, then rejected, resolved, valid for reporting, and recorded with no flags.
 - A queued attendance action preserves unchanged raw capture evidence until acknowledgement. Admin-approved schedule corrections can change only the audited expected-schedule context for the record’s work date; they never modify the captured action, timestamp, location, or offline evidence.
 - Background sync on iOS is unsupported; UX must continue to be explicit.
 - Google Places address search is scaffolded but requires `VITE_GOOGLE_MAPS_API_KEY`.
@@ -332,7 +334,7 @@ Remaining in current phase:
 - Data retention job for GPS expiry is not implemented.
 - pg-boss/background job infrastructure is deferred.
 - Need decide whether admins should have staff profile/default attendance model in production even if they do not perform attendance.
-- Attendance events, flags, correction records, devices, exports, and roving overrides remain in later migration blocks; no attendance persistence API exists yet.
+- Correction records, devices, exports, and roving overrides remain in later migration blocks. Attendance events and flags are implemented through the controlled recorder and its immutable database tables.
 
 ## 7. Files Created or Modified
 

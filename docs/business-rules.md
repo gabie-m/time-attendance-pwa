@@ -67,6 +67,17 @@ These rules are admin-configurable through the `attendance_rules` table in the M
 - Flag review remarks are required when a manager or admin performs an approval, rejection, resolution, or escalation action.
 - Original attendance records remain immutable regardless of flag review outcome.
 
+## Employee Attendance History Rules
+
+- An employee's attendance history defaults to the most recent 30 calendar days.
+- Employees can view their own recorded attendance actions and whether an action was captured offline.
+- Employees see a plain-language flag reason and one outcome only: `Needs review`, `Resolved`, `Valid for reporting`, or `Rejected`.
+- `Resolved` means the review issue is closed, but it is not an approval for payroll or reporting.
+- A completed day derives its current status from its flag outcomes: pending flags take priority as `Needs review`, then `Rejected`, then `Resolved`, then `Valid for reporting`; a day without flags is `Recorded`.
+- This derived status does not alter the immutable events or the session's audit status.
+- Employees do not see raw flag evidence, precise GPS coordinates, photo paths or metadata, internal validation calculations, location identifiers, reviewer identities, reviewer remarks, or reviewer-only GPS analysis.
+- `pre_approved` remains `Needs review` for employee display until a final review outcome exists.
+
 ## Platform And PWA Rules
 
 - iOS is officially supported for MVP with explicit limitations.

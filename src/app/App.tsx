@@ -9,6 +9,7 @@ import { AdminScreen } from '../screens/AdminScreen';
 import { LoginScreen } from '../screens/LoginScreen';
 import { ManagerFlagReviewScreen } from '../screens/ManagerFlagReviewScreen';
 import { ManagerScreen } from '../screens/ManagerScreen';
+import { MyAttendanceHistoryScreen } from '../screens/MyAttendanceHistoryScreen';
 import { MyRequestsScreen } from '../screens/MyRequestsScreen';
 import { ReportsScreen } from '../screens/ReportsScreen';
 import { RovingScreen } from '../screens/RovingScreen';
@@ -32,6 +33,7 @@ export function App() {
         <Route path="/stationary" element={<ProtectedRoute path="/stationary"><StationaryScreen /></ProtectedRoute>} />
         <Route path="/roving" element={<ProtectedRoute path="/roving"><RovingScreen /></ProtectedRoute>} />
         <Route path="/requests" element={<ProtectedRoute path="/requests"><MyRequestsScreen /></ProtectedRoute>} />
+        <Route path="/history" element={<ProtectedRoute path="/history"><MyAttendanceHistoryScreen /></ProtectedRoute>} />
         <Route path="/manager" element={<ProtectedRoute path="/manager"><ManagerScreen /></ProtectedRoute>} />
         <Route path="/manager/flags" element={<ProtectedRoute path="/manager/flags"><ManagerFlagReviewScreen /></ProtectedRoute>} />
         <Route path="/admin/flags" element={<ProtectedRoute path="/admin/flags"><AdminFlagReviewScreen /></ProtectedRoute>} />
