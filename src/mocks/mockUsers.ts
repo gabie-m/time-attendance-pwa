@@ -4,7 +4,7 @@ export const mockUsers: MockUser[] = [
   {
     id: 'user-stationary',
     name: 'Maria Santos',
-    role: 'user',
+    role: 'employee',
     attendanceModel: 'stationary',
     expectedLocation: 'SM Megamall',
     shift: '08:00-17:00',
@@ -13,7 +13,7 @@ export const mockUsers: MockUser[] = [
   {
     id: 'user-roving',
     name: 'Jonas Reyes',
-    role: 'user',
+    role: 'employee',
     attendanceModel: 'roving',
     expectedLocation: 'Field Route 04',
     shift: 'Flexible visits',
@@ -35,6 +35,15 @@ export const mockUsers: MockUser[] = [
     attendanceModel: 'stationary',
     expectedLocation: 'Head Office',
     shift: 'Operations',
+    locationConsentGivenAt: '2026-05-01T08:00:00.000Z'
+  },
+  {
+    id: 'hr',
+    name: 'HR Reviewer',
+    role: 'hr',
+    attendanceModel: null,
+    expectedLocation: '',
+    shift: 'Review only',
     locationConsentGivenAt: '2026-05-01T08:00:00.000Z'
   }
 ];

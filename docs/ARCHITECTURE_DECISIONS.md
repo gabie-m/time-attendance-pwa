@@ -438,7 +438,7 @@ users/{user_id}/{work_date}/{session_id}/{client_event_id}.jpg
 **Implementation Notes:**
 
 - Employee IDs must be unique across staff profiles.
-- New user setup requires all identity and staff profile fields before saving.
+- Employees require identity and staff profile fields; Manager, HR, and Admin accounts may be review-only until a staff profile is assigned.
 
 **Future Impact:** Staff category management UI should preserve admin override behavior.
 
@@ -506,6 +506,20 @@ users/{user_id}/{work_date}/{session_id}/{client_event_id}.jpg
 **Implementation Notes:** `needs_review` remains visible until an approval, resolution, or rejection is recorded. `Resolved` is distinct from `Valid for reporting`; it closes the review issue without implying payroll/reporting approval. `pre_approved` is not a final employee outcome. A day derives its current outcome in this order: `Needs review`, `Rejected`, `Resolved`, `Valid for reporting`, then `Recorded` when it has no flags. The derived outcome does not overwrite the session's audit status or any immutable event. The `get_my_attendance_history` security-definer RPC derives the employee from `auth.uid()` and is the only employee self-service read path; direct employee table policies are removed.
 
 **Future Impact:** Manager and admin history views may expose additional authorized detail through separate role-aware read models. They must not reuse the employee-safe payload as a substitute for reviewer data.
+
+---
+
+## ADR-025: Fixed MVP access roles separate employee, manager, HR, and admin responsibilities
+
+**Status:** Accepted
+
+**Decision:** The MVP has four fixed primary roles: `employee`, `manager`, `hr`, and `admin`. A later milestone may introduce configurable roles and permissions. A staff profile is required for employees and optional for Managers, HR, and admins; an active staff profile is what enables a reviewer to record their own attendance.
+
+**Rationale:** Employee attendance, direct-team management, HR review, and system administration have distinct responsibilities. Introducing HR now keeps final correction review separate from broad system administration without prematurely building a configurable authorization engine.
+
+**Implementation Notes:** Managers handle direct-team review only. Covering-manager delegation does not grant manual-edit decision authority. HR may directly approve or reject a manual-edit request, or complete final approval after a manager decision. The role foundation establishes these role boundaries; the HR workflow UI/API and restricted reviewer evidence path remain separate implementation work. Managers and HR must receive only derived GPS status/distance/accuracy and may access a relevant attendance photo on demand through an authorized, audit-logged path; exact GPS coordinates and maps are restricted to Admin.
+
+**Future Impact:** Replace the fixed role enum with managed role and permission assignments only as a dedicated authorization migration, with independent security review. Do not use job title or staff type as a permission substitute.
 
 ---
 

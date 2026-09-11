@@ -28,14 +28,15 @@ These rules are enforced automatically and are not configurable.
 - If the time between sequential attendance actions is shorter than 30 minutes, show a confirmation window before accepting the action. This applies to stationary punches and to the duration between a roving visit Start Visit and End Visit. It does not apply to travel or waiting time between separate roving visits.
 - Users cannot directly edit attendance records; only correction requests are allowed.
 - Original attendance events are immutable and are never edited or deleted.
-- Manager approval creates a manual adjustment record and does not overwrite original attendance events.
+- Manager approval creates a proposed manual adjustment record and does not overwrite original attendance events.
 - Users cannot submit a correction request for a session that is still open.
-- Users can cancel a pending correction request before a manager acts on it.
+- Users can cancel a pending correction request before a manager or HR acts on it.
 - Users can resubmit after a rejection; the original rejection record is preserved.
+- HR or Admin may approve or reject a correction directly without prior manager action. A manager-approved adjustment requires HR/Admin final approval before it affects reporting.
 - Approved corrections cannot be reversed; admin handles disputes separately.
 - Manager approval and rejection both require remarks.
 - One pending request is allowed per user per session per request type at a time.
-- New user setup requires all identity and staff profile fields before saving.
+- Employees require a staff profile. Managers, HR, and admins may be review-only accounts without a staff profile, or receive one when they need to capture their own attendance.
 - Employee IDs must be unique across staff profiles; duplicate employee IDs are rejected.
 
 ## Configurable Rules
@@ -89,6 +90,8 @@ These rules are admin-configurable through the `attendance_rules` table in the M
 
 ## Authentication And Session Rules
 
+- Fixed MVP roles are `employee`, `manager`, `hr`, and `admin`. This is not yet a configurable roles-and-permissions engine.
+- The approved review policy is that Managers and HR receive only derived GPS status, rounded distance, and accuracy, and may open the relevant attendance photo through an authorized, audit-logged evidence path. Exact GPS coordinates, maps, and raw GPS evidence are Admin-only. The restricted reviewer evidence path is pending implementation.
 - Access token duration: 15 minutes.
 - Refresh token duration: 30 days.
 - Offline events may be captured when the access token is expired.

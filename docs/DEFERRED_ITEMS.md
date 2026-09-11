@@ -82,6 +82,8 @@ Update this document whenever a deferred item is built, a gap is resolved, or a 
 | G-10 | `expectedLocation` hardcoded as empty string | `src/auth/AuthProvider.tsx` | Placeholder in `fetchAuthenticatedUserProfile`. Needs to pull from `user_location_assignments` once that table is wired to the frontend. |
 | G-11 | `users` array in real auth provider | `src/auth/AuthProvider.tsx` | Leftover mock pattern. Real auth provider only needs the single authenticated `user`. Clean up after auth is stable. |
 | G-13 | `useMockAuth` still exists | `src/auth/` | Not deleted, just unused after `useAuth` migration. Clean up after `feature/supabase-auth` is stable. |
+| G-18 | Configurable roles and permissions | Authorization model | MVP uses the fixed `employee`, `manager`, `hr`, and `admin` roles. Replace this with Admin-managed role/permission assignments in a dedicated future authorization milestone. |
+| G-19 | HR review workflow and restricted evidence reader | Attendance review | The HR role foundation is in place, but its organization-wide review screens/RPCs and audited photo-evidence reader remain to be implemented. Managers must not receive raw GPS event rows. |
 
 ## Resolved Items
 

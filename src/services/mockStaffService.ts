@@ -127,7 +127,7 @@ const locationAssignmentsStorageKey = 'staff-service-location-assignments';
 const listeners = new Set<() => void>();
 
 export function listUsers() {
-  return readJson<User[]>(usersStorageKey, seedUsers);
+  return normalizeLegacyUserRoles(readJson<User[]>(usersStorageKey, seedUsers));
 }
 
 export function listStaffProfiles() {
@@ -174,20 +174,25 @@ export function createStaffSetup(input: CreateStaffSetupInput): ServiceResult<St
     created_at: now,
     updated_at: now
   };
-  const nextProfile: StaffProfile = {
-    user_id: userId,
-    employee_code: input.employee_code.trim(),
-    staff_type: input.staff_type,
-    default_attendance_model: input.default_attendance_model,
-    timezone: input.timezone.trim(),
-    shift_label: input.shift_label.trim(),
-    active: true,
-    created_at: now,
-    updated_at: now
-  };
+  const shouldCreateStaffProfile = Boolean(input.employee_code.trim());
+  const nextProfile: StaffProfile | null = shouldCreateStaffProfile
+    ? {
+        user_id: userId,
+        employee_code: input.employee_code.trim(),
+        staff_type: input.staff_type,
+        default_attendance_model: input.default_attendance_model,
+        timezone: input.timezone.trim(),
+        shift_label: input.shift_label.trim(),
+        active: true,
+        created_at: now,
+        updated_at: now
+      }
+    : null;
 
   writeUsers([nextUser, ...users]);
-  writeStaffProfiles([nextProfile, ...profiles]);
+  if (nextProfile) {
+    writeStaffProfiles([nextProfile, ...profiles]);
+  }
 
   return success({
     user: nextUser,
@@ -226,14 +231,20 @@ export function updateStaffProfile(input: UpdateStaffProfileInput): ServiceResul
 
   const profiles = listStaffProfiles();
   const existingProfile = profiles.find((profile) => profile.user_id === input.user_id);
-  if (input.employee_code && isDuplicateEmployeeCode(input.employee_code, input.user_id, profiles)) {
+  const employeeCode = input.employee_code === undefined
+    ? existingProfile?.employee_code ?? null
+    : input.employee_code?.trim() || null;
+  if (!employeeCode) {
+    return failure('Employee ID is required for a staff profile.');
+  }
+  if (isDuplicateEmployeeCode(employeeCode, input.user_id, profiles)) {
     return failure('Employee ID already exists.');
   }
 
   const now = new Date().toISOString();
   const nextProfile: StaffProfile = {
     user_id: input.user_id,
-    employee_code: input.employee_code !== undefined ? input.employee_code : existingProfile?.employee_code ?? null,
+    employee_code: employeeCode,
     staff_type: input.staff_type ?? existingProfile?.staff_type ?? 'stationary',
     default_attendance_model:
       input.default_attendance_model ?? existingProfile?.default_attendance_model ?? input.staff_type ?? 'stationary',
@@ -398,15 +409,15 @@ function getCreateStaffSetupValidationError(input: CreateStaffSetupInput) {
     return 'Email is required.';
   }
 
-  if (!input.employee_code.trim()) {
+  if (input.role === 'employee' && !input.employee_code.trim()) {
     return 'Employee ID is required.';
   }
 
-  if (!input.timezone.trim()) {
+  if (input.employee_code.trim() && !input.timezone.trim()) {
     return 'Timezone is required.';
   }
 
-  if (!input.shift_label.trim()) {
+  if (input.employee_code.trim() && !input.shift_label.trim()) {
     return 'Shift label is required.';
   }
 
@@ -513,6 +524,21 @@ function normalizeLegacyLocationAssignmentIds(assignments: UserLocationAssignmen
       ? { ...assignment, location_id: replacementId }
       : assignment;
   });
+}
+
+function normalizeLegacyUserRoles(users: User[]): User[] {
+  return users.map((user): User => {
+    const storedRole = user.role as string;
+    if (storedRole === 'user') {
+      return { ...user, role: 'employee' };
+    }
+
+    return isUserRole(storedRole) ? { ...user, role: storedRole } : { ...user, role: 'employee' };
+  });
+}
+
+function isUserRole(value: string): value is UserRole {
+  return value === 'employee' || value === 'manager' || value === 'hr' || value === 'admin';
 }
 
 function success<T>(data: T): ServiceResult<T> {

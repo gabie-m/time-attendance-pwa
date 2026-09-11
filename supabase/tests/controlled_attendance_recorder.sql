@@ -2,7 +2,7 @@ BEGIN;
 
 CREATE EXTENSION IF NOT EXISTS pgtap;
 
-SELECT plan(56);
+SELECT plan(66);
 
 UPDATE public.attendance_rules
 SET effective_from = CURRENT_DATE - 30;
@@ -54,6 +54,30 @@ INSERT INTO auth.users (
     'authenticated',
     now(),
     now()
+  ),
+  (
+    '00000000-0000-0000-0000-000000000106',
+    'hr-recorder-test@example.com',
+    'authenticated',
+    'authenticated',
+    now(),
+    now()
+  ),
+  (
+    '00000000-0000-0000-0000-000000000107',
+    'admin-recorder-test@example.com',
+    'authenticated',
+    'authenticated',
+    now(),
+    now()
+  ),
+  (
+    '00000000-0000-0000-0000-000000000108',
+    'inactive-profile-recorder-test@example.com',
+    'authenticated',
+    'authenticated',
+    now(),
+    now()
   );
 
 INSERT INTO public.users (
@@ -68,7 +92,7 @@ INSERT INTO public.users (
     '00000000-0000-0000-0000-000000000101',
     'Stationary Recorder Test',
     'stationary-recorder-test@example.com',
-    'user',
+    'employee',
     true,
     now()
   ),
@@ -76,7 +100,7 @@ INSERT INTO public.users (
     '00000000-0000-0000-0000-000000000102',
     'Roving Recorder Test',
     'roving-recorder-test@example.com',
-    'user',
+    'employee',
     true,
     now()
   ),
@@ -84,7 +108,7 @@ INSERT INTO public.users (
     '00000000-0000-0000-0000-000000000103',
     'No Consent Recorder Test',
     'no-consent-recorder-test@example.com',
-    'user',
+    'employee',
     true,
     NULL
   ),
@@ -92,7 +116,7 @@ INSERT INTO public.users (
     '00000000-0000-0000-0000-000000000104',
     'No Profile Recorder Test',
     'no-profile-recorder-test@example.com',
-    'user',
+    'employee',
     true,
     now()
   ),
@@ -101,6 +125,30 @@ INSERT INTO public.users (
     'History Review Manager Test',
     'history-review-manager-test@example.com',
     'manager',
+    true,
+    now()
+  ),
+  (
+    '00000000-0000-0000-0000-000000000106',
+    'HR Recorder Test',
+    'hr-recorder-test@example.com',
+    'hr',
+    true,
+    now()
+  ),
+  (
+    '00000000-0000-0000-0000-000000000107',
+    'Admin Recorder Test',
+    'admin-recorder-test@example.com',
+    'admin',
+    true,
+    now()
+  ),
+  (
+    '00000000-0000-0000-0000-000000000108',
+    'Inactive Profile Recorder Test',
+    'inactive-profile-recorder-test@example.com',
+    'employee',
     true,
     now()
   );
@@ -139,6 +187,42 @@ INSERT INTO public.staff_profiles (
     'payroll',
     'restricted',
     'RECORDER-NO-CONSENT',
+    'Asia/Manila'
+  ),
+  (
+    '00000000-0000-0000-0000-000000000105',
+    'stationary',
+    'stationary',
+    'payroll',
+    'restricted',
+    'RECORDER-MANAGER',
+    'Asia/Manila'
+  ),
+  (
+    '00000000-0000-0000-0000-000000000106',
+    'stationary',
+    'stationary',
+    'payroll',
+    'restricted',
+    'RECORDER-HR',
+    'Asia/Manila'
+  ),
+  (
+    '00000000-0000-0000-0000-000000000107',
+    'stationary',
+    'stationary',
+    'payroll',
+    'restricted',
+    'RECORDER-ADMIN',
+    'Asia/Manila'
+  ),
+  (
+    '00000000-0000-0000-0000-000000000108',
+    'stationary',
+    'stationary',
+    'payroll',
+    'restricted',
+    'RECORDER-INACTIVE',
     'Asia/Manila'
   );
 
@@ -199,6 +283,30 @@ INSERT INTO public.user_location_assignments (
   ),
   (
     '00000000-0000-0000-0000-000000000102',
+    '00000000-0000-0000-0000-000000000201',
+    'primary',
+    CURRENT_DATE - 30
+  ),
+  (
+    '00000000-0000-0000-0000-000000000105',
+    '00000000-0000-0000-0000-000000000201',
+    'primary',
+    CURRENT_DATE - 30
+  ),
+  (
+    '00000000-0000-0000-0000-000000000106',
+    '00000000-0000-0000-0000-000000000201',
+    'primary',
+    CURRENT_DATE - 30
+  ),
+  (
+    '00000000-0000-0000-0000-000000000107',
+    '00000000-0000-0000-0000-000000000201',
+    'primary',
+    CURRENT_DATE - 30
+  ),
+  (
+    '00000000-0000-0000-0000-000000000108',
     '00000000-0000-0000-0000-000000000201',
     'primary',
     CURRENT_DATE - 30
@@ -316,7 +424,166 @@ SELECT ok(
   'client roles retain no direct write, destructive, reference, trigger, or maintenance privileges on recorder-owned tables'
 );
 
+SELECT is(
+  ARRAY(
+    SELECT enumlabel
+    FROM pg_enum
+    WHERE enumtypid = 'public.user_role'::regtype
+    ORDER BY enumsortorder
+  ),
+  ARRAY['employee', 'manager', 'hr', 'admin']::name[],
+  'the fixed MVP role set is employee, manager, HR, and admin'
+);
+
 SET LOCAL ROLE authenticated;
+SELECT set_config(
+  'request.jwt.claim.sub',
+  '00000000-0000-0000-0000-000000000105',
+  true
+);
+
+SELECT lives_ok(
+  $$
+    SELECT *
+    FROM public.record_attendance_event(
+      '00000000-0000-0000-0000-000000000280',
+      'time_in',
+      now(),
+      '00000000-0000-0000-0000-000000000201',
+      NULL,
+      NULL,
+      14.000000,
+      121.000000,
+      20,
+      false,
+      '{}'::jsonb,
+      NULL,
+      '{}'::jsonb,
+      NULL,
+      false,
+      true,
+      false
+    )
+  $$,
+  'a manager with a staff profile can record own attendance'
+);
+
+SELECT is(
+  (SELECT count(*) FROM public.attendance_events WHERE user_id = auth.uid()),
+  0::bigint,
+  'managers cannot directly select raw attendance evidence, including their own GPS coordinates'
+);
+
+SELECT set_config(
+  'request.jwt.claim.sub',
+  '00000000-0000-0000-0000-000000000106',
+  true
+);
+
+SELECT lives_ok(
+  $$
+    SELECT *
+    FROM public.record_attendance_event(
+      '00000000-0000-0000-0000-000000000281',
+      'time_in',
+      now(),
+      '00000000-0000-0000-0000-000000000201',
+      NULL,
+      NULL,
+      14.000000,
+      121.000000,
+      20,
+      false,
+      '{}'::jsonb,
+      NULL,
+      '{}'::jsonb,
+      NULL,
+      false,
+      true,
+      false
+    )
+  $$,
+  'HR with a staff profile can record own attendance'
+);
+
+SELECT is(
+  (SELECT count(*) FROM public.attendance_events WHERE user_id = auth.uid()),
+  0::bigint,
+  'HR cannot directly select raw attendance evidence, including GPS coordinates'
+);
+
+RESET ROLE;
+UPDATE public.staff_profiles
+SET active = false
+WHERE user_id = '00000000-0000-0000-0000-000000000108';
+SET LOCAL ROLE authenticated;
+SELECT set_config(
+  'request.jwt.claim.sub',
+  '00000000-0000-0000-0000-000000000108',
+  true
+);
+
+SELECT throws_like(
+  $$
+    SELECT *
+    FROM public.record_attendance_event(
+      '00000000-0000-0000-0000-000000000283',
+      'time_in',
+      now(),
+      '00000000-0000-0000-0000-000000000201',
+      NULL,
+      NULL,
+      14.000000,
+      121.000000,
+      20,
+      false,
+      '{}'::jsonb,
+      NULL,
+      '{}'::jsonb,
+      NULL,
+      false,
+      true,
+      false
+    )
+  $$,
+  '%attendance profile is inactive or incomplete%',
+  'an inactive staff profile cannot record further attendance events'
+);
+
+RESET ROLE;
+
+SELECT set_config(
+  'request.jwt.claim.sub',
+  '00000000-0000-0000-0000-000000000107',
+  true
+);
+
+SELECT lives_ok(
+  $$
+    SELECT *
+    FROM public.record_attendance_event(
+      '00000000-0000-0000-0000-000000000282',
+      'time_in',
+      now(),
+      '00000000-0000-0000-0000-000000000201',
+      NULL,
+      NULL,
+      14.000000,
+      121.000000,
+      20,
+      false,
+      '{}'::jsonb,
+      NULL,
+      '{}'::jsonb,
+      NULL,
+      false,
+      true,
+      false
+    )
+  $$,
+  'an admin with a staff profile can record own attendance'
+);
+
 SELECT set_config(
   'request.jwt.claim.sub',
   '00000000-0000-0000-0000-000000000101',
@@ -553,6 +820,24 @@ SELECT is(
 );
 RESET ROLE;
 
+INSERT INTO public.staff_profiles (
+  user_id,
+  staff_type,
+  default_attendance_model,
+  attendance_purpose,
+  location_access,
+  employee_code,
+  timezone
+) VALUES (
+  '00000000-0000-0000-0000-000000000104',
+  'roving',
+  'roving',
+  'monitoring',
+  'restricted',
+  'RECORDER-NO-PROFILE-AFTER-ASSERTION',
+  'Asia/Manila'
+);
+
 INSERT INTO public.attendance_sessions (
   id,
   user_id,
@@ -596,6 +881,24 @@ SELECT set_config(
   '00000000-0000-0000-0000-000000000105',
   true
 );
+
+SET LOCAL ROLE authenticated;
+SELECT is(
+  (SELECT count(*) FROM public.attendance_sessions WHERE user_id = '00000000-0000-0000-0000-000000000104'),
+  0::bigint,
+  'a manager cannot directly select an assigned staff member session'
+);
+SELECT is(
+  (SELECT count(*) FROM public.attendance_flags WHERE user_id = '00000000-0000-0000-0000-000000000104'),
+  0::bigint,
+  'a manager cannot directly select an assigned staff member flag evidence'
+);
+SELECT is(
+  (SELECT count(*) FROM public.attendance_flag_reviews),
+  0::bigint,
+  'a manager cannot directly select flag review records'
+);
+RESET ROLE;
 
 INSERT INTO public.attendance_flag_reviews (
   attendance_flag_id,

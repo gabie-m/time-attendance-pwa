@@ -34,6 +34,7 @@ type UserRow = {
 type StaffProfileRow = {
   default_attendance_model: AttendanceModel | null;
   shift_label: string | null;
+  active: boolean;
 };
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -263,7 +264,7 @@ async function fetchAuthenticatedUserProfile(
 
   const { data: staffProfileRow, error: staffProfileError } = await supabase
     .from('staff_profiles')
-    .select('default_attendance_model,shift_label')
+    .select('default_attendance_model,shift_label,active')
     .eq('user_id', authUser.id)
     .maybeSingle<StaffProfileRow>();
 
@@ -271,27 +272,33 @@ async function fetchAuthenticatedUserProfile(
     return failure(staffProfileError.message);
   }
 
-  if (!staffProfileRow) {
+  if (!staffProfileRow && userRow.role === 'employee') {
     return failure('Your account setup is incomplete. Contact an administrator.');
+  }
+
+  if (staffProfileRow && !staffProfileRow.active && userRow.role === 'employee') {
+    return failure('Your attendance profile is inactive. Contact an administrator.');
   }
 
   return success({
     id: userRow.id,
     name: userRow.name ?? authUser.email ?? 'User',
     role: normalizeRole(userRow.role),
-    attendanceModel: normalizeAttendanceModel(staffProfileRow.default_attendance_model),
+    attendanceModel: staffProfileRow?.active
+      ? normalizeAttendanceModel(staffProfileRow.default_attendance_model)
+      : null,
     expectedLocation: '',
-    shift: staffProfileRow.shift_label ?? 'Assigned shift',
+    shift: staffProfileRow?.shift_label ?? 'No attendance profile assigned',
     locationConsentGivenAt: userRow.location_consent_given_at
   });
 }
 
 function normalizeRole(role: Role | null): Role {
-  if (role === 'manager' || role === 'admin') {
+  if (role === 'manager' || role === 'hr' || role === 'admin') {
     return role;
   }
 
-  return 'user';
+  return 'employee';
 }
 
 function normalizeAttendanceModel(attendanceModel: AttendanceModel | null | undefined): AttendanceModel {
