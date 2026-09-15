@@ -134,7 +134,7 @@ export const mockAttendanceDetailData: EmployeeAttendanceDetail[] = [
   {
     employeeId: 'employee-jonas',
     employeeName: 'Jonas Reyes',
-    role: 'user',
+    role: 'employee',
     staffType: 'roving',
     employeeCode: 'EMP-002',
     active: true,
@@ -322,7 +322,7 @@ export const mockAttendanceDetailData: EmployeeAttendanceDetail[] = [
   {
     employeeId: 'employee-ana',
     employeeName: 'Ana Dela Cruz',
-    role: 'user',
+    role: 'employee',
     staffType: 'stationary',
     employeeCode: 'EMP-014',
     active: true,
@@ -384,7 +384,7 @@ export const mockAttendanceDetailData: EmployeeAttendanceDetail[] = [
   {
     employeeId: 'employee-paolo',
     employeeName: 'Paolo Garcia',
-    role: 'user',
+    role: 'employee',
     staffType: 'stationary',
     employeeCode: 'EMP-018',
     active: true,
@@ -445,7 +445,7 @@ export const mockAttendanceDetailData: EmployeeAttendanceDetail[] = [
   {
     employeeId: 'employee-carlo',
     employeeName: 'Carlo Mendoza',
-    role: 'user',
+    role: 'employee',
     staffType: 'stationary',
     employeeCode: 'EMP-099',
     active: false,

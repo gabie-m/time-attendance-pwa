@@ -5,28 +5,32 @@ export function getDefaultRouteForUser(user: MockUser) {
     return '/admin';
   }
 
-  if (user.role === 'manager') {
-    return user.attendanceModel === 'roving' ? '/roving' : '/stationary';
+  if (user.attendanceModel === 'roving') {
+    return '/roving';
   }
 
-  return user.attendanceModel === 'roving' ? '/roving' : '/stationary';
+  if (user.attendanceModel === 'stationary') {
+    return '/stationary';
+  }
+
+  return user.role === 'manager' ? '/manager' : '/history';
 }
 
 export function canAccessRoute(user: MockUser, route: string) {
   if (route === '/requests') {
-    return user.role === 'user' || user.role === 'manager';
+    return true;
   }
 
   if (route === '/history') {
-    return user.role === 'user' || user.role === 'manager';
+    return true;
   }
 
   if (route === '/stationary') {
-    return user.attendanceModel === 'stationary' && user.role !== 'admin';
+    return user.attendanceModel === 'stationary';
   }
 
   if (route === '/roving') {
-    return user.attendanceModel === 'roving' && user.role !== 'admin';
+    return user.attendanceModel === 'roving';
   }
 
   if (route === '/manager' || route === '/manager/flags') {

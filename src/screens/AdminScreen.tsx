@@ -62,7 +62,7 @@ type AddUserFormState = {
 const emptyAddUserForm: AddUserFormState = {
   name: '',
   email: '',
-  role: 'user',
+  role: 'employee',
   employee_code: '',
   staff_type: 'stationary',
   default_attendance_model: 'stationary',
@@ -145,6 +145,30 @@ export function AdminScreen() {
       return;
     }
 
+    const employeeCode = staffForm.employee_code.trim();
+    if (staffForm.role === 'employee' && !employeeCode) {
+      setStaffMessage('Employee ID is required for an employee attendance profile.');
+      return;
+    }
+
+    const shouldSaveProfile = Boolean(selectedRecord.staff_profile || employeeCode);
+    const profileResult = shouldSaveProfile
+      ? updateStaffProfile({
+          user_id: selectedRecord.user.id,
+          employee_code: employeeCode || null,
+          staff_type: staffForm.staff_type,
+          default_attendance_model: staffForm.default_attendance_model,
+          timezone: staffForm.timezone,
+          shift_label: staffForm.shift_label.trim() || null,
+          active: staffForm.profile_active
+        })
+      : { success: true, data: null, error: null };
+
+    if (!profileResult.success) {
+      setStaffMessage(profileResult.error ?? 'Profile could not be updated.');
+      return;
+    }
+
     const userResult = updateUser({
       user_id: selectedRecord.user.id,
       name: staffForm.name,
@@ -154,21 +178,6 @@ export function AdminScreen() {
 
     if (!userResult.success) {
       setStaffMessage(userResult.error ?? 'User could not be updated.');
-      return;
-    }
-
-    const profileResult = updateStaffProfile({
-      user_id: selectedRecord.user.id,
-      employee_code: staffForm.employee_code.trim() || null,
-      staff_type: staffForm.staff_type,
-      default_attendance_model: staffForm.default_attendance_model,
-      timezone: staffForm.timezone,
-      shift_label: staffForm.shift_label.trim() || null,
-      active: staffForm.profile_active
-    });
-
-    if (!profileResult.success) {
-      setStaffMessage(profileResult.error ?? 'Profile could not be updated.');
       return;
     }
 
@@ -321,9 +330,9 @@ export function AdminScreen() {
             <div className="panel-title">
               <div>
                 <h2 id="add-user-title">Add User</h2>
-                <p>Create a new user and staff profile. Assign manager and locations after creation.</p>
+                <p>Create a new account. Add a staff profile only when the account needs attendance access.</p>
               </div>
-              <Pill tone="flag">All fields required</Pill>
+              <Pill tone="flag">Profile optional for review roles</Pill>
             </div>
             <div className="manual-edit-form compact-form">
               <label>
@@ -350,15 +359,16 @@ export function AdminScreen() {
                   value={addUserForm.role}
                   onChange={(event) => setAddUserForm((current) => ({ ...current, role: event.target.value as UserRole }))}
                 >
-                  <option value="user">User</option>
+                  <option value="employee">Employee</option>
                   <option value="manager">Manager</option>
+                  <option value="hr">HR</option>
                   <option value="admin">Admin</option>
                 </select>
               </label>
               <label>
                 Employee ID
                 <input
-                  required
+                  required={addUserForm.role === 'employee'}
                   value={addUserForm.employee_code}
                   onChange={(event) => setAddUserForm((current) => ({ ...current, employee_code: event.target.value }))}
                 />
@@ -400,7 +410,7 @@ export function AdminScreen() {
               <label>
                 Timezone
                 <input
-                  required
+                  required={Boolean(addUserForm.employee_code)}
                   value={addUserForm.timezone}
                   onChange={(event) => setAddUserForm((current) => ({ ...current, timezone: event.target.value }))}
                 />
@@ -408,7 +418,7 @@ export function AdminScreen() {
               <label>
                 Shift label
                 <input
-                  required
+                  required={Boolean(addUserForm.employee_code)}
                   value={addUserForm.shift_label}
                   onChange={(event) => setAddUserForm((current) => ({ ...current, shift_label: event.target.value }))}
                 />
@@ -457,8 +467,9 @@ export function AdminScreen() {
                   value={staffForm.role}
                   onChange={(event) => setStaffForm((current) => ({ ...current, role: event.target.value as UserRole }))}
                 >
-                  <option value="user">User</option>
+                  <option value="employee">Employee</option>
                   <option value="manager">Manager</option>
+                  <option value="hr">HR</option>
                   <option value="admin">Admin</option>
                 </select>
               </label>
@@ -767,7 +778,7 @@ function getStaffFormState(record: StaffSetupView | null): StaffFormState {
   return {
     name: record?.user.name ?? '',
     email: record?.user.email ?? '',
-    role: record?.user.role ?? 'user',
+    role: record?.user.role ?? 'employee',
     employee_code: record?.staff_profile?.employee_code ?? '',
     staff_type: record?.staff_profile?.staff_type ?? 'stationary',
     default_attendance_model: record?.staff_profile?.default_attendance_model ?? 'stationary',

@@ -43,7 +43,7 @@ export function AppShell() {
             <select value={user.id} onChange={(event) => setUserId(event.target.value)}>
               {users.map((item) => (
                 <option value={item.id} key={item.id}>
-                  {item.role} · {item.attendanceModel}
+                  {item.role} · {item.attendanceModel ?? 'review only'}
                 </option>
               ))}
             </select>

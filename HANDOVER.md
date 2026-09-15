@@ -44,11 +44,12 @@ Development phases:
 
 ### Auth And Permissions
 
-- Roles: `user`, `manager`, `admin`.
-- Users can log in, capture attendance, view history, request manual edits, see assigned locations, see flags, and sync offline records.
-- Users cannot directly edit attendance records, override timestamps, remove geolocation, or modify assigned locations.
-- Managers can do user functions plus view assigned staff, see timed-in/out staff, review flags, review manual edit requests, approve/reject manual corrections, and export team reports when implemented.
-- Admins manage users, managers, reporting structure, locations, assignments, schedules, temporary roving overrides, attendance rules, flags/approvals, and payroll-ready exports.
+- Roles: `employee`, `manager`, `hr`, `admin`.
+- Employees can log in, capture attendance, view history, request manual edits, see assigned locations, see flags, and sync offline records.
+- Managers, HR, and admins can also capture their own attendance when they have an active staff profile; staff profiles are optional for review-only Manager, HR, and admin accounts.
+- Managers can do employee functions plus view assigned staff, see timed-in/out staff, review flags, and perform the manager stage of manual-edit review. Covering managers do not act on manual-edit requests.
+- HR is the designated role for organization-wide attendance review and manual-adjustment final review. Those HR workflows and the restricted evidence-read path are still pending implementation; exact GPS coordinates/maps remain Admin-only.
+- Admins manage users, roles, reporting structure, locations, assignments, schedules, temporary roving overrides, attendance rules, flags/approvals, payroll-ready exports, and retain HR review overrides.
 - Frontend route guards are UX only. APIs must reject unauthorized requests server-side.
 - Access token duration: 15 minutes.
 - Refresh token duration: 30 days.
@@ -122,7 +123,7 @@ Development phases:
 - Users cannot directly edit attendance records.
 - Original attendance events are immutable and never edited/deleted.
 - Corrections are submitted through manual edit requests.
-- Manager approval creates a manual adjustment record and does not overwrite original attendance events.
+- Manager approval creates a proposed manual adjustment record and does not overwrite original attendance events.
 - Request reason is required.
 - Request correction field and new value are required.
 - Request type is required.
@@ -135,6 +136,7 @@ Development phases:
 - Users can cancel pending requests before manager action.
 - Users can resubmit after rejection; original rejection remains visible.
 - Manager approval and rejection both require remarks.
+- HR or Admin may approve or reject a correction directly without prior manager action. A manager-approved adjustment requires HR/Admin final approval before it affects reporting.
 - Approved corrections cannot be reversed in MVP; admin handles disputes later.
 - Real file upload is deferred.
 
@@ -236,7 +238,7 @@ Current mock default flag workflow settings:
 
 ### Enums / Valid Values
 
-- Roles: `user`, `manager`, `admin`.
+- Roles: `employee`, `manager`, `hr`, `admin`.
 - Staff/attendance model: `stationary`, `roving`.
 - Location assignment type: `primary`, `allowed`, `temporary`.
 - Attendance event validation status: `normal`, `warning`, `flagged`, `needs_review`, `overtime_candidate`.

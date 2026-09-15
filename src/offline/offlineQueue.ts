@@ -85,7 +85,7 @@ export type OfflineAuthenticatedProfile = {
   id: string;
   name: string;
   role: Role;
-  attendanceModel: AttendanceModel;
+  attendanceModel: AttendanceModel | null;
   expectedLocation: string;
   shift: string;
   locationConsentGivenAt: string | null;

@@ -42,7 +42,7 @@ export type FlagReviewRecord = {
   employeeId: string;
   employeeName: string;
   employeeCode: string;
-  role: 'user' | 'manager';
+  role: 'employee' | 'manager';
   staffType: 'stationary' | 'roving';
   managerId: string;
   managerName: string;
@@ -149,7 +149,7 @@ export const flagReviewRecords: FlagReviewRecord[] = [
     employeeId: 'employee-jonas',
     employeeName: 'Jonas Reyes',
     employeeCode: 'EMP-002',
-    role: 'user',
+    role: 'employee',
     staffType: 'roving',
     managerId: 'manager',
     managerName: 'Lea Cruz',
@@ -179,7 +179,7 @@ export const flagReviewRecords: FlagReviewRecord[] = [
     employeeId: 'employee-ana',
     employeeName: 'Ana Dela Cruz',
     employeeCode: 'EMP-014',
-    role: 'user',
+    role: 'employee',
     staffType: 'stationary',
     managerId: 'manager',
     managerName: 'Lea Cruz',
@@ -209,7 +209,7 @@ export const flagReviewRecords: FlagReviewRecord[] = [
     employeeId: 'employee-paolo',
     employeeName: 'Paolo Garcia',
     employeeCode: 'EMP-018',
-    role: 'user',
+    role: 'employee',
     staffType: 'stationary',
     managerId: 'manager',
     managerName: 'Lea Cruz',
@@ -249,7 +249,7 @@ export const flagReviewRecords: FlagReviewRecord[] = [
     employeeId: 'employee-carlo',
     employeeName: 'Carlo Mendoza',
     employeeCode: 'EMP-099',
-    role: 'user',
+    role: 'employee',
     staffType: 'stationary',
     managerId: 'manager',
     managerName: 'Lea Cruz',

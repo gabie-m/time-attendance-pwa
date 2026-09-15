@@ -1,4 +1,4 @@
-export type Role = 'user' | 'manager' | 'admin';
+export type Role = 'employee' | 'manager' | 'hr' | 'admin';
 
 export type AttendanceModel = 'stationary' | 'roving';
 
