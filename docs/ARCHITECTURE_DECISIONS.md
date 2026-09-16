@@ -517,9 +517,23 @@ users/{user_id}/{work_date}/{session_id}/{client_event_id}.jpg
 
 **Rationale:** Employee attendance, direct-team management, HR review, and system administration have distinct responsibilities. Introducing HR now keeps final correction review separate from broad system administration without prematurely building a configurable authorization engine.
 
-**Implementation Notes:** Managers handle direct-team review only. Covering-manager delegation does not grant manual-edit decision authority. HR may directly approve or reject a manual-edit request, or complete final approval after a manager decision. The role foundation establishes these role boundaries; the HR workflow UI/API and restricted reviewer evidence path remain separate implementation work. Managers and HR must receive only derived GPS status/distance/accuracy and may access a relevant attendance photo on demand through an authorized, audit-logged path; exact GPS coordinates and maps are restricted to Admin.
+**Implementation Notes:** Managers handle direct-team review only. Covering-manager delegation does not grant manual-edit decision authority. HR may directly approve or reject a manual-edit request, or complete final approval after a manager decision. The role foundation establishes these role boundaries. GPS analysis, coordinates, maps, distances, and accuracy are restricted to Admin. An authorized, audit-logged attendance-photo evidence path remains separate implementation work.
 
 **Future Impact:** Replace the fixed role enum with managed role and permission assignments only as a dedicated authorization migration, with independent security review. Do not use job title or staff type as a permission substitute.
+
+---
+
+## ADR-026: Reviewer access uses a separate, role-aware safe read model
+
+**Status:** Accepted
+
+**Decision:** Manager, HR, and Admin review queues use a dedicated database function rather than direct attendance-table access. It defaults to the last 30 Asia/Manila calendar days. HR and Admin receive organization-wide review-safe summaries. Managers receive summaries only for staff assigned to them at the time of access; a covering manager needs an active `review_flags` delegation and sees only the original manager's current team.
+
+**Rationale:** Reviewers need enough information to assess attendance flags without exposing raw GPS, location, evidence, or internal-review data. Evaluating manager scope at access time prevents former managers from retaining access to historical staff records.
+
+**Implementation Notes:** `get_reviewer_flag_queue` includes both event-level and session-level flags, so a missing-punch flag cannot disappear solely because it lacks an attendance event. Its payload excludes GPS values, location identifiers, raw evidence, photo paths/metadata, and reviewer remarks. It fails closed for inactive or unrecognized roles. Delegation helpers use positional SQL parameters and the Asia/Manila date to avoid scope overgranting and UTC-boundary errors.
+
+**Future Impact:** The queue is a read contract only. Manager/HR review actions and the authorized, audit-logged photo-evidence reader remain separate work. Any new reviewer field must be assessed against this safe-payload boundary and covered by authorization regression tests.
 
 ---
 

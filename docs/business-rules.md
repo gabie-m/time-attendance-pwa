@@ -79,6 +79,16 @@ These rules are admin-configurable through the `attendance_rules` table in the M
 - Employees do not see raw flag evidence, precise GPS coordinates, photo paths or metadata, internal validation calculations, location identifiers, reviewer identities, reviewer remarks, or reviewer-only GPS analysis.
 - `pre_approved` remains `Needs review` for employee display until a final review outcome exists.
 
+## Reviewer Queue Rules
+
+- The reviewer queue defaults to the last 30 Asia/Manila calendar days, including today.
+- Managers can review only staff assigned to them on the day of access. A former manager cannot use an old assignment to view former-team history.
+- A covering manager can review only the original manager's currently assigned staff and only while an active `review_flags` delegation applies.
+- HR and Admin can view the organization-wide review-safe queue.
+- The queue includes both event-level and session-level flags. A session-level flag has no related event type.
+- The review-safe queue includes identity, work date, session/action type when present, offline status, flag severity/routing, and review outcome. It excludes all GPS data and location identifiers, raw evidence, photo paths or metadata, and reviewer remarks.
+- Attendance-photo access for Managers and HR remains a separate authorized and audit-logged evidence feature; it is not provided by the queue.
+
 ## Platform And PWA Rules
 
 - iOS is officially supported for MVP with explicit limitations.
@@ -91,7 +101,7 @@ These rules are admin-configurable through the `attendance_rules` table in the M
 ## Authentication And Session Rules
 
 - Fixed MVP roles are `employee`, `manager`, `hr`, and `admin`. This is not yet a configurable roles-and-permissions engine.
-- The approved review policy is that Managers and HR receive only derived GPS status, rounded distance, and accuracy, and may open the relevant attendance photo through an authorized, audit-logged evidence path. Exact GPS coordinates, maps, and raw GPS evidence are Admin-only. The restricted reviewer evidence path is pending implementation.
+- Managers and HR receive a review-safe attendance and flag summary only for their authorized scope. GPS analysis, coordinates, maps, distances, and accuracy are Admin-only. Managers and HR may later open a relevant attendance photo through an authorized, audit-logged evidence path; that evidence feature is not implemented yet.
 - Access token duration: 15 minutes.
 - Refresh token duration: 30 days.
 - Offline events may be captured when the access token is expired.
