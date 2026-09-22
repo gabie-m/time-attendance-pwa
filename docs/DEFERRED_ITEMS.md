@@ -83,7 +83,7 @@ Update this document whenever a deferred item is built, a gap is resolved, or a 
 | G-11 | `users` array in real auth provider | `src/auth/AuthProvider.tsx` | Leftover mock pattern. Real auth provider only needs the single authenticated `user`. Clean up after auth is stable. |
 | G-13 | `useMockAuth` still exists | `src/auth/` | Not deleted, just unused after `useAuth` migration. Clean up after `feature/supabase-auth` is stable. |
 | G-18 | Configurable roles and permissions | Authorization model | MVP uses the fixed `employee`, `manager`, `hr`, and `admin` roles. Replace this with Admin-managed role/permission assignments in a dedicated future authorization milestone. |
-| G-19 | Reviewer actions, UI, and restricted evidence reader | Attendance review | A role-aware review-safe queue now exists for Managers, HR, and Admin. Review screens/actions and the audited attendance-photo reader remain to be implemented. GPS analysis remains Admin-only. |
+| G-19 | Reviewer UI and restricted evidence reader | Attendance review | A role-aware review-safe queue and controlled Manager/HR/Admin action are in place. Review screens and the audited attendance-photo reader remain to be implemented. GPS analysis remains Admin-only. |
 
 ## Resolved Items
 

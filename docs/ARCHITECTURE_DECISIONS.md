@@ -300,6 +300,7 @@ users/{user_id}/{work_date}/{session_id}/{client_event_id}.jpg
 - Admin cannot take final action on manager-preapproval flags until manager pre-approval exists.
 - Approval, rejection, resolution, and escalation actions require remarks.
 - `Mark Resolved` is not the same as `Approve`.
+- In a manager-preapproval workflow, HR/Admin receives the manager's name, recommendation, remarks, and timestamp for final-review context. The reviewer queue remains otherwise evidence-safe.
 
 **Future Impact:** Workflow settings should live in Admin settings, not inside daily review screens.
 
@@ -517,7 +518,7 @@ users/{user_id}/{work_date}/{session_id}/{client_event_id}.jpg
 
 **Rationale:** Employee attendance, direct-team management, HR review, and system administration have distinct responsibilities. Introducing HR now keeps final correction review separate from broad system administration without prematurely building a configurable authorization engine.
 
-**Implementation Notes:** Managers handle direct-team review only. Covering-manager delegation does not grant manual-edit decision authority. HR may directly approve or reject a manual-edit request, or complete final approval after a manager decision. The role foundation establishes these role boundaries. GPS analysis, coordinates, maps, distances, and accuracy are restricted to Admin. An authorized, audit-logged attendance-photo evidence path remains separate implementation work.
+**Implementation Notes:** Managers handle direct-team review only. Covering-manager delegation does not grant manual-edit decision authority. HR may directly approve or reject a manual-edit request, or complete final approval after a manager decision. For attendance flags, HR shares the final workflow stage with Admin and follows the same per-flag workflow configuration; this does not permit HR to override a manager-terminal workflow. GPS analysis, coordinates, maps, distances, and accuracy are restricted to Admin. An authorized, audit-logged attendance-photo evidence path remains separate implementation work.
 
 **Future Impact:** Replace the fixed role enum with managed role and permission assignments only as a dedicated authorization migration, with independent security review. Do not use job title or staff type as a permission substitute.
 
@@ -531,9 +532,9 @@ users/{user_id}/{work_date}/{session_id}/{client_event_id}.jpg
 
 **Rationale:** Reviewers need enough information to assess attendance flags without exposing raw GPS, location, evidence, or internal-review data. Evaluating manager scope at access time prevents former managers from retaining access to historical staff records.
 
-**Implementation Notes:** `get_reviewer_flag_queue` includes both event-level and session-level flags, so a missing-punch flag cannot disappear solely because it lacks an attendance event. Its payload excludes GPS values, location identifiers, raw evidence, photo paths/metadata, and reviewer remarks. It fails closed for inactive or unrecognized roles. Delegation helpers use positional SQL parameters and the Asia/Manila date to avoid scope overgranting and UTC-boundary errors.
+**Implementation Notes:** `get_reviewer_flag_queue` includes both event-level and session-level flags, so a missing-punch flag cannot disappear solely because it lacks an attendance event. Its payload excludes GPS values, location identifiers, raw evidence, and photo paths/metadata. In `manager_preapprove_admin_final`, HR/Admin alone receive the manager's name, recommendation, remarks, and timestamp as final-review context; Managers receive only a neutral reviewed state. It fails closed for inactive or unrecognized roles. Delegation helpers use positional SQL parameters and the Asia/Manila date to avoid scope overgranting and UTC-boundary errors.
 
-**Future Impact:** The queue is a read contract only. Manager/HR review actions and the authorized, audit-logged photo-evidence reader remain separate work. Any new reviewer field must be assessed against this safe-payload boundary and covered by authorization regression tests.
+**Future Impact:** The queue is the safe read contract for the controlled Manager/HR/Admin review actions. The authorized, audit-logged photo-evidence reader remains separate work. Any new reviewer field must be assessed against this safe-payload boundary and covered by authorization regression tests.
 
 ---
 

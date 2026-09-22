@@ -48,7 +48,7 @@ Development phases:
 - Employees can log in, capture attendance, view history, request manual edits, see assigned locations, see flags, and sync offline records.
 - Managers, HR, and admins can also capture their own attendance when they have an active staff profile; staff profiles are optional for review-only Manager, HR, and admin accounts.
 - Managers can do employee functions plus view assigned staff, see timed-in/out staff, review flags, and perform the manager stage of manual-edit review. Covering managers do not act on manual-edit requests.
-- HR is the designated role for organization-wide attendance review and manual-adjustment final review. Those HR workflows and the restricted evidence-read path are still pending implementation; exact GPS coordinates/maps remain Admin-only.
+- HR is the designated role for organization-wide attendance review and manual-adjustment final review. HR can also make final attendance-flag decisions under the same per-flag workflow rules as Admin; it cannot override a manager-terminal workflow. Reviewer UI and the restricted evidence-read path are still pending implementation; exact GPS coordinates/maps remain Admin-only.
 - Admins manage users, roles, reporting structure, locations, assignments, schedules, temporary roving overrides, attendance rules, flags/approvals, payroll-ready exports, and retain HR review overrides.
 - Frontend route guards are UX only. APIs must reject unauthorized requests server-side.
 - Access token duration: 15 minutes.
@@ -151,9 +151,9 @@ Development phases:
 - Manager Flag Review menu must show all flags visible to managers, including admin-approval flags where no manager action is required.
 - For manager visibility/admin approval flags, manager sees "visibility only" and no approval action is required.
 - Admin Flag Review shows only Admin-specific workflow/action. Manager workflow details belong in Manager Flag Review.
-- For manager pre-approval/admin final approval flags, Admin must see manager pre-approval status, manager name, timestamp, and comments.
+- For manager pre-approval/final approval flags, HR and Admin must see the manager's stage-aware recommendation status, name, timestamp, and comments.
 - If manager pre-approval is pending, Admin sees the flag but no Admin action can be done until manager pre-approval exists.
-- Flag review remarks are required when manager/admin performs approval, rejection, resolution, or escalation.
+- Flag review remarks are required when a Manager, HR, or Admin performs approval, rejection, or resolution.
 - Original attendance records remain immutable regardless of flag review result.
 
 ### Exports
@@ -322,7 +322,7 @@ Remaining in current phase:
 - Attendance sessions are intentionally not directly writable by authenticated clients. The controlled attendance recorder now creates sessions and immutable events together; all future capture paths must use it.
 - Offline sync has a durable Dexie queue, last-verified rules/location cache, ordered replay, explicit pending/failed UI, Product Owner offline/reconnect validation, and independent high-risk review.
 - Employee attendance history defaults to the last 30 days. Its database RPC derives the caller from `auth.uid()` and exposes only employee-safe action, offline, flag-reason, and derived-outcome data. Raw GPS, photos, evidence, validation details, locations, and reviewer information remain restricted.
-- Manager/HR/Admin flag review has a separate, review-safe database queue that defaults to the last 30 Asia/Manila calendar days. Manager access is current-team only, covering managers require an active `review_flags` delegation, and HR/Admin can view organization-wide summaries. The queue excludes GPS, location IDs, raw evidence, photo data, and reviewer remarks; photo evidence remains a later audited feature.
+- Manager/HR/Admin flag review has a separate, review-safe database queue that defaults to the last 30 Asia/Manila calendar days. Manager access is current-team only, covering managers require an active `review_flags` delegation, and HR/Admin can view organization-wide summaries. The queue excludes GPS, location IDs, raw evidence, and photo data. For manager-preapproval workflows only, HR/Admin receives the manager's name, recommendation, remarks, and timestamp for final-review context; photo evidence remains a later audited feature.
 - A completed day's current status is derived from its final flag outcomes without mutating its session or events: pending review takes priority, then rejected, resolved, valid for reporting, and recorded with no flags.
 - A queued attendance action preserves unchanged raw capture evidence until acknowledgement. Admin-approved schedule corrections can change only the audited expected-schedule context for the record’s work date; they never modify the captured action, timestamp, location, or offline evidence.
 - Background sync on iOS is unsupported; UX must continue to be explicit.
