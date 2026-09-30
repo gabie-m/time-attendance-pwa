@@ -63,9 +63,10 @@ These rules are admin-configurable through the `attendance_rules` table in the M
 - A flag inherits its manager/admin approval workflow from its `flag_type`; reviewers do not choose the workflow during review.
 - Example: if `gps_low_accuracy` is configured as `manager_review_admin_observe`, all low GPS accuracy flags require manager approval while admin only reviews the manager decision.
 - `manager_review_admin_observe`: manager reviews and approves the flag; admin sees the flag and manager approval for audit review only.
-- `manager_preapprove_admin_final`: manager reviews first and pre-approves or recommends rejection; admin performs final approval or rejection.
-- `manager_view_admin_approve`: manager can see the flag for awareness but cannot approve; admin is the only approver.
-- Flag review remarks are required when a manager or admin performs an approval, rejection, resolution, or escalation action.
+- `manager_preapprove_admin_final`: manager reviews first and pre-approves or recommends rejection; HR or Admin performs the final approval, rejection, or resolution.
+- `manager_view_admin_approve`: manager can see the flag for awareness but cannot approve; HR or Admin is the only final reviewer.
+- HR can make final flag-review decisions organization-wide, using the same per-flag workflow rules as Admin.
+- Flag review remarks are required when a Manager, HR, or Admin performs an approval, rejection, or resolution action.
 - Original attendance records remain immutable regardless of flag review outcome.
 
 ## Employee Attendance History Rules
@@ -86,7 +87,8 @@ These rules are admin-configurable through the `attendance_rules` table in the M
 - A covering manager can review only the original manager's currently assigned staff and only while an active `review_flags` delegation applies.
 - HR and Admin can view the organization-wide review-safe queue.
 - The queue includes both event-level and session-level flags. A session-level flag has no related event type.
-- The review-safe queue includes identity, work date, session/action type when present, offline status, flag severity/routing, and review outcome. It excludes all GPS data and location identifiers, raw evidence, photo paths or metadata, and reviewer remarks.
+- The review-safe queue includes identity, work date, session/action type when present, offline status, flag severity/routing, and a stage-aware review outcome. It excludes all GPS data and location identifiers, raw evidence, and photo paths or metadata.
+- For `manager_preapprove_admin_final`, HR and Admin also receive the manager's name, recommendation, remarks, and timestamp as the accountable context for their final decision. This context is not returned to Managers.
 - Attendance-photo access for Managers and HR remains a separate authorized and audit-logged evidence feature; it is not provided by the queue.
 
 ## Platform And PWA Rules
